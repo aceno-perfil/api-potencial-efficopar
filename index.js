@@ -86,7 +86,114 @@ async function avaliarLote(imoveis) {
   }
 
   return parsed;
-}  
+}
+
+// Função para dividir array em lotes
+function dividirEmLotes(array, tamanhoLote) {
+  const lotes = [];
+  for (let i = 0; i < array.length; i += tamanhoLote) {
+    lotes.push(array.slice(i, i + tamanhoLote));
+  }
+  return lotes;
+}
+
+// Função para processar múltiplos lotes
+async function processarLotes(imoveis, tamanhoLote = 50) {
+  console.log(`📦 [${new Date().toLocaleTimeString()}] Dividindo ${imoveis.length} imóveis em lotes de ${tamanhoLote}...`);
+  
+  const lotes = dividirEmLotes(imoveis, tamanhoLote);
+  console.log(`📊 [${new Date().toLocaleTimeString()}] Criados ${lotes.length} lote(s)`);
+  
+  const resultados = [];
+  let totalProcessados = 0;
+  let totalSucessos = 0;
+  let totalErros = 0;
+  
+  for (let i = 0; i < lotes.length; i++) {
+    const lote = lotes[i];
+    console.log(`\n🚀 [${new Date().toLocaleTimeString()}] ===== PROCESSANDO LOTE ${i + 1}/${lotes.length} =====`);
+    console.log(`📦 Lote ${i + 1}: ${lote.length} imóveis`);
+    
+    try {
+      const resposta = await avaliarLote(lote);
+      
+      if (resposta.items && resposta.items.length > 0) {
+        console.log(`💾 [${new Date().toLocaleTimeString()}] Salvando ${resposta.items.length} resultado(s) do lote ${i + 1}...`);
+        await salvarPotenciais(resposta.items);
+        totalProcessados += resposta.items.length;
+        totalSucessos += resposta.items.length;
+        resultados.push({
+          lote: i + 1,
+          status: 'sucesso',
+          processados: resposta.items.length,
+          resposta: resposta
+        });
+        console.log(`✅ [${new Date().toLocaleTimeString()}] Lote ${i + 1} processado com sucesso!`);
+      } else {
+        console.log(`⚠️ [${new Date().toLocaleTimeString()}] Lote ${i + 1} sem items na resposta`);
+        resultados.push({
+          lote: i + 1,
+          status: 'sem_items',
+          processados: 0,
+          resposta: resposta
+        });
+      }
+    } catch (err) {
+      console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no lote ${i + 1}:`, err.message);
+      totalErros += lote.length;
+      
+      // Salva registros de erro para este lote
+      const registrosErro = lote.map(imovel => ({
+        imovel_id: imovel.imovel_id,
+        periodo: imovel.periodo || new Date().toISOString().slice(0, 7) + '-01',
+        potencial_score: null,
+        potencial_nivel: null,
+        potencial_cadastro: null,
+        potencial_medicao: null,
+        potencial_inadimplencia: null,
+        motivo: "",
+        acao_sugerida: "",
+        justificativa_curta: "",
+        erro: err.message
+      }));
+      
+      try {
+        await salvarPotenciais(registrosErro);
+        console.log(`💾 [${new Date().toLocaleTimeString()}] Registros de erro salvos para lote ${i + 1}`);
+      } catch (saveErr) {
+        console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registros de erro do lote ${i + 1}:`, saveErr.message);
+      }
+      
+      resultados.push({
+        lote: i + 1,
+        status: 'erro',
+        processados: 0,
+        erro: err.message
+      });
+    }
+    
+    // Pequena pausa entre lotes para não sobrecarregar
+    if (i < lotes.length - 1) {
+      console.log(`⏸️ [${new Date().toLocaleTimeString()}] Pausa de 2s antes do próximo lote...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  
+  console.log(`\n🎉 [${new Date().toLocaleTimeString()}] ===== TODOS OS LOTES CONCLUÍDOS =====`);
+  console.log(`📊 Total de lotes: ${lotes.length}`);
+  console.log(`✅ Sucessos: ${totalSucessos}`);
+  console.log(`❌ Erros: ${totalErros}`);
+  console.log(`💾 Total processados: ${totalProcessados}`);
+  
+  return {
+    total_lotes: lotes.length,
+    total_imoveis: imoveis.length,
+    sucessos: totalSucessos,
+    erros: totalErros,
+    total_processados: totalProcessados,
+    resultados_por_lote: resultados
+  };
+}
   
   async function salvarPotenciais(items) {
     if (!items || !items.length) return;
@@ -193,6 +300,47 @@ app.get("/testar-gpt/:ano/:mes/:setor", async (req, res) => {
   }
 });
 
+// rota de teste gpt com quantidade específica
+app.get("/testar-gpt/:ano/:mes/:setor/:quantidade", async (req, res) => {
+  try {
+    const { ano, mes, setor, quantidade } = req.params;
+    const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
+    const qtd = parseInt(quantidade);
+
+    // Validação da quantidade
+    if (isNaN(qtd) || qtd < 1 || qtd > 100) {
+      return res.status(400).json({ 
+        erro: "Quantidade deve ser um número entre 1 e 100" 
+      });
+    }
+
+    console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando ${qtd} imóveis para teste...`);
+    const imoveis = await buscarImoveis(periodo, setor);
+    
+    if (!imoveis.length) {
+      return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
+    }
+
+    // Pega apenas a quantidade solicitada
+    const imoveisParaTeste = imoveis.slice(0, qtd);
+    
+    console.log(`🚀 [${new Date().toLocaleTimeString()}] Iniciando teste com ${imoveisParaTeste.length} imóveis...`);
+    const resposta = await avaliarLote(imoveisParaTeste);
+
+    res.json({ 
+      periodo,
+      setor,
+      quantidade_solicitada: qtd,
+      quantidade_encontrada: imoveis.length,
+      quantidade_processada: imoveisParaTeste.length,
+      resposta 
+    });
+  } catch (err) {
+    console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no teste:`, err);
+    res.status(500).json({ erro: err.message });
+  }
+});
+
 // rota de salvar potenciais
 app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
     try {
@@ -211,60 +359,19 @@ app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
       }
   
       console.log(`✅ [${new Date().toLocaleTimeString()}] Encontrados ${imoveis.length} imóveis para processar`);
-  
-      // Processa em lote (mais rápido)
-      let total = 0;
-      let sucessos = 0;
-      let erros = 0;
-      
-      try {
-        console.log(`\n🚀 [${new Date().toLocaleTimeString()}] ===== PROCESSANDO LOTE =====`);
-        const resposta = await avaliarLote(imoveis);
 
-        if (resposta.items && resposta.items.length > 0) {
-          console.log(`💾 [${new Date().toLocaleTimeString()}] Salvando ${resposta.items.length} resultado(s) no Supabase...`);
-          await salvarPotenciais(resposta.items);
-          total += resposta.items.length;
-          sucessos = resposta.items.length;
-          console.log(`✅ [${new Date().toLocaleTimeString()}] Lote processado com sucesso!`);
-        } else {
-          console.log(`⚠️ [${new Date().toLocaleTimeString()}] Resposta sem items no lote`);
-        }
-      } catch (err) {
-        erros = imoveis.length;
-        console.error(`❌ [${new Date().toLocaleTimeString()}] Erro processando lote:`, err.message);
+      // Processa em lotes de 50 automaticamente
+      const resultado = await processarLotes(imoveis, 50);
 
-        // salva todos com erro
-        console.log(`💾 [${new Date().toLocaleTimeString()}] Salvando registros de erro no Supabase...`);
-        const registrosErro = imoveis.map(imovel => ({
-          imovel_id: imovel.imovel_id,
-          periodo: periodo,
-          potencial_score: null,
-          potencial_nivel: null,
-          potencial_cadastro: null,
-          potencial_medicao: null,
-          potencial_inadimplencia: null,
-          motivo: "",
-          acao_sugerida: "",
-          justificativa_curta: "",
-          erro: err.message
-        }));
-        await salvarPotenciais(registrosErro);
-      }
-  
-      console.log(`\n🎉 [${new Date().toLocaleTimeString()}] ===== PROCESSAMENTO CONCLUÍDO =====`);
-      console.log(`📊 Total processados: ${imoveis.length}`);
-      console.log(`✅ Sucessos: ${sucessos}`);
-      console.log(`❌ Erros: ${erros}`);
-      console.log(`💾 Total inseridos: ${total}`);
-  
       res.json({ 
         setor, 
         periodo, 
-        total_processados: imoveis.length,
-        sucessos,
-        erros,
-        total_inseridos: total 
+        total_imoveis: resultado.total_imoveis,
+        total_lotes: resultado.total_lotes,
+        sucessos: resultado.sucessos,
+        erros: resultado.erros,
+        total_processados: resultado.total_processados,
+        resultados_por_lote: resultado.resultados_por_lote
       });
   
     } catch (err) {
