@@ -32,7 +32,7 @@ async function buscarImoveis(periodo, setor) {
 
 async function avaliarLote(imoveis) {
   console.log(`🏠 [${new Date().toLocaleTimeString()}] Iniciando avaliação de lote com ${imoveis.length} imóveis`);
-  
+
   const payload = JSON.stringify(imoveis);
 
   // Cria thread
