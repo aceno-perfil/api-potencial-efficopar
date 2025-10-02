@@ -100,23 +100,23 @@ function dividirEmLotes(array, tamanhoLote) {
 // Função para processar múltiplos lotes
 async function processarLotes(imoveis, tamanhoLote = 50) {
   console.log(`📦 [${new Date().toLocaleTimeString()}] Dividindo ${imoveis.length} imóveis em lotes de ${tamanhoLote}...`);
-  
+
   const lotes = dividirEmLotes(imoveis, tamanhoLote);
   console.log(`📊 [${new Date().toLocaleTimeString()}] Criados ${lotes.length} lote(s)`);
-  
+
   const resultados = [];
   let totalProcessados = 0;
   let totalSucessos = 0;
   let totalErros = 0;
-  
+
   for (let i = 0; i < lotes.length; i++) {
     const lote = lotes[i];
     console.log(`\n🚀 [${new Date().toLocaleTimeString()}] ===== PROCESSANDO LOTE ${i + 1}/${lotes.length} =====`);
     console.log(`📦 Lote ${i + 1}: ${lote.length} imóveis`);
-    
+
     try {
       const resposta = await avaliarLote(lote);
-      
+
       if (resposta.items && resposta.items.length > 0) {
         console.log(`💾 [${new Date().toLocaleTimeString()}] Salvando ${resposta.items.length} resultado(s) do lote ${i + 1}...`);
         await salvarPotenciais(resposta.items);
@@ -141,7 +141,7 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
     } catch (err) {
       console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no lote ${i + 1}:`, err.message);
       totalErros += lote.length;
-      
+
       // Salva registros de erro para este lote
       const registrosErro = lote.map(imovel => ({
         imovel_id: imovel.imovel_id,
@@ -156,14 +156,14 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
         justificativa_curta: "",
         erro: err.message
       }));
-      
+
       try {
         await salvarPotenciais(registrosErro);
         console.log(`💾 [${new Date().toLocaleTimeString()}] Registros de erro salvos para lote ${i + 1}`);
       } catch (saveErr) {
         console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registros de erro do lote ${i + 1}:`, saveErr.message);
       }
-      
+
       resultados.push({
         lote: i + 1,
         status: 'erro',
@@ -171,20 +171,20 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
         erro: err.message
       });
     }
-    
+
     // Pequena pausa entre lotes para não sobrecarregar
     if (i < lotes.length - 1) {
       console.log(`⏸️ [${new Date().toLocaleTimeString()}] Pausa de 2s antes do próximo lote...`);
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
-  
+
   console.log(`\n🎉 [${new Date().toLocaleTimeString()}] ===== TODOS OS LOTES CONCLUÍDOS =====`);
   console.log(`📊 Total de lotes: ${lotes.length}`);
   console.log(`✅ Sucessos: ${totalSucessos}`);
   console.log(`❌ Erros: ${totalErros}`);
   console.log(`💾 Total processados: ${totalProcessados}`);
-  
+
   return {
     total_lotes: lotes.length,
     total_imoveis: imoveis.length,
@@ -194,10 +194,10 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
     resultados_por_lote: resultados
   };
 }
-  
+
   async function salvarPotenciais(items) {
     if (!items || !items.length) return;
-  
+
     const registros = items.map(item => ({
       imovel_id: item.imovel_id,
       periodo: item.periodo,
@@ -211,21 +211,21 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
       justificativa_curta: item.justificativa_curta,
       erro: item.erro || null,
     }));
-  
+
     console.log(`💾 [${new Date().toLocaleTimeString()}] Fazendo upsert de ${registros.length} registros...`);
-  
+
     const { error } = await supabase
       .from("potencial_receita_imovel")
       .upsert(registros, { 
         onConflict: 'imovel_id,periodo',
         ignoreDuplicates: false 
       });
-  
+
     if (error) {
       console.error("Erro ao fazer upsert no Supabase:", error);
       throw error;
     }
-    
+
     console.log(`✅ [${new Date().toLocaleTimeString()}] Upsert realizado com sucesso!`);
   }
 
@@ -316,14 +316,14 @@ app.get("/testar-gpt/:ano/:mes/:setor/:quantidade", async (req, res) => {
 
     console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando ${qtd} imóveis para teste...`);
     const imoveis = await buscarImoveis(periodo, setor);
-    
+
     if (!imoveis.length) {
       return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
     }
 
     // Pega apenas a quantidade solicitada
     const imoveisParaTeste = imoveis.slice(0, qtd);
-    
+
     console.log(`🚀 [${new Date().toLocaleTimeString()}] Iniciando teste com ${imoveisParaTeste.length} imóveis...`);
     const resposta = await avaliarLote(imoveisParaTeste);
 
@@ -346,10 +346,10 @@ app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
     try {
       const { ano, mes, setor } = req.params;
       const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
-  
+
       console.log(`🚀 [${new Date().toLocaleTimeString()}] ===== INICIANDO PROCESSAMENTO =====`);
       console.log(`📅 Período: ${periodo} | 🏘️ Setor: ${setor}`);
-  
+
       // Busca imóveis
       console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando imóveis no Supabase...`);
       const imoveis = await buscarImoveis(periodo, setor);
@@ -357,15 +357,15 @@ app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
         console.log(`❌ [${new Date().toLocaleTimeString()}] Nenhum imóvel encontrado`);
         return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
       }
-  
+
       console.log(`✅ [${new Date().toLocaleTimeString()}] Encontrados ${imoveis.length} imóveis para processar`);
 
       // Processa em lotes de 50 automaticamente
       const resultado = await processarLotes(imoveis, 50);
 
-      res.json({ 
-        setor, 
-        periodo, 
+      res.json({
+        setor,
+        periodo,
         total_imoveis: resultado.total_imoveis,
         total_lotes: resultado.total_lotes,
         sucessos: resultado.sucessos,
@@ -373,12 +373,12 @@ app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
         total_processados: resultado.total_processados,
         resultados_por_lote: resultado.resultados_por_lote
       });
-  
+
     } catch (err) {
       console.error(`💥 [${new Date().toLocaleTimeString()}] Erro geral:`, err);
       res.status(500).json({ erro: err.message });
     }
-  });  
+  });
 
 // 7. Start server
 app.listen(PORT, () => {
