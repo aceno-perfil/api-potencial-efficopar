@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aceno-potencial:latest
+    ports:
+      - "3000:3000"
+    # Preferred for local development: put your secrets in a local .env file (do NOT commit it)
+    # Create a file named `.env` next to this compose file with at least:
+    # OPENAI_API_KEY=sk-...
+    # SUPABASE_URL=...
+    # SUPABASE_SERVICE_KEY=...
+    env_file:
+      - .env
+    restart: unless-stopped
+
+# Optional: example of using Docker secrets (requires Docker Swarm or compatible orchestrator)
+# secrets:
+#   openai_api_key:
+#     external: true

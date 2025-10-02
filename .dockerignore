@@ -1,0 +1,33 @@
+node_modules
+npm-debug.log
+pnpm-lock.yaml
+package-lock.json
+.env
+.env.*
+.env.local
+.env.development.local
+.DS_Store
+dist
+.cache
+.git
+.github
+.vscode
+coverage
+logs
+.idea
+node_modules
+npm-debug.log
+package-lock.json
+
+# Logs
+logs
+*.log
+
+# Environment files
+.env
+
+# Git
+.git
+
+# OS files
+.DS_Store
