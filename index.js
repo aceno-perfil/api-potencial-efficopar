@@ -65,6 +65,24 @@ async function avaliarLote(imoveis) {
 
   if (run.status === "failed") {
     console.log(`❌ [${new Date().toLocaleTimeString()}] Assistant falhou ao processar o lote`);
+
+    // Cria auditoria do erro do Assistant
+    const auditoriaAssistant = criarAuditoriaErro(
+      'ASSISTANT_FALHOU',
+      imoveis,
+      new Error("Assistant falhou ao processar o lote"),
+      {
+        thread_id: thread.id,
+        run_id: run.id,
+        status: run.status,
+        tentativas: tentativas,
+        operacao: 'avaliar_lote'
+      }
+    );
+
+    console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de erro do Assistant criada`);
+    console.log(auditoriaAssistant);
+
     throw new Error("O Assistant falhou ao processar o lote");
   }
 
@@ -82,10 +100,54 @@ async function avaliarLote(imoveis) {
     console.log(`✅ [${new Date().toLocaleTimeString()}] Resposta parseada com sucesso para lote de ${imoveis.length} imóveis`);
   } catch (e) {
     console.log(`⚠️ [${new Date().toLocaleTimeString()}] Erro ao parsear JSON do lote: ${e.message}`);
+
+    // Cria auditoria do erro de parsing
+    const auditoriaParse = criarAuditoriaErro(
+      'JSON_PARSE_FALHOU',
+      { texto_resposta: texto, imoveis_originais: imoveis },
+      e,
+      {
+        thread_id: thread.id,
+        run_id: run.id,
+        tamanho_texto: texto.length,
+        operacao: 'parsear_resposta_assistant'
+      }
+    );
+
+    console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de erro de parsing criada`);
+    console.log(auditoriaParse);
+    
     parsed = { raw: texto, erro_parse: e.message };
   }
 
   return parsed;
+}
+
+// Função para validar UUID
+function isValidUUID(uuid) {
+  if (!uuid || typeof uuid !== 'string') return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
+
+// Função para validar período
+function isValidPeriod(periodo) {
+  if (!periodo || typeof periodo !== 'string') return false;
+  return periodo.match(/^\d{4}-\d{2}-\d{2}$/) !== null;
+}
+
+// Função para criar objeto de auditoria para a coluna erro
+function criarAuditoriaErro(tipoErro, dadosOriginais, erro, contexto = {}) {
+  const auditoria = {
+    timestamp: new Date().toISOString(),
+    tipo_erro: tipoErro,
+    erro_mensagem: erro.message || erro.toString(),
+    dados_originais: dadosOriginais,
+    contexto: contexto,
+    stack_trace: erro.stack || null
+  };
+
+  return JSON.stringify(auditoria);
 }
 
 // Função para dividir array em lotes
@@ -142,6 +204,19 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
       console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no lote ${i + 1}:`, err.message);
       totalErros += lote.length;
 
+      // Cria auditoria do erro do lote
+      const auditoriaErroLote = criarAuditoriaErro(
+        'LOTE_PROCESSAMENTO_FALHOU',
+        lote,
+        err,
+        {
+          numero_lote: i + 1,
+          total_lotes: lotes.length,
+          tamanho_lote: lote.length,
+          operacao: 'processar_lote'
+        }
+      );
+
       // Salva registros de erro para este lote
       const registrosErro = lote.map(imovel => ({
         imovel_id: imovel.imovel_id,
@@ -154,7 +229,7 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
         motivo: "",
         acao_sugerida: "",
         justificativa_curta: "",
-        erro: err.message
+        erro: auditoriaErroLote
       }));
 
       try {
@@ -162,6 +237,21 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
         console.log(`💾 [${new Date().toLocaleTimeString()}] Registros de erro salvos para lote ${i + 1}`);
       } catch (saveErr) {
         console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registros de erro do lote ${i + 1}:`, saveErr.message);
+
+        // Cria auditoria do erro ao salvar registros de erro
+        const auditoriaErroSalvar = criarAuditoriaErro(
+          'SALVAR_REGISTROS_ERRO_LOTE_FALHOU',
+          registrosErro,
+          saveErr,
+          {
+            numero_lote: i + 1,
+            total_registros_erro: registrosErro.length,
+            operacao: 'salvar_registros_erro_lote'
+          }
+        );
+
+        console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de erro ao salvar lote criada`);
+        console.log(auditoriaErroSalvar);
       }
 
       resultados.push({
@@ -195,10 +285,51 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
   };
 }
 
-  async function salvarPotenciais(items) {
-    if (!items || !items.length) return;
+async function salvarPotenciais(items) {
+  if (!items || !items.length) return;
 
-    const registros = items.map(item => ({
+  console.log(`🔍 [${new Date().toLocaleTimeString()}] Validando ${items.length} registros antes do upsert...`);
+
+  // Validação e limpeza dos dados
+  const registrosValidos = [];
+  const registrosInvalidos = [];
+
+  for (const item of items) {
+    const errosValidacao = [];
+
+    // Valida UUID
+    if (!item.imovel_id || !isValidUUID(item.imovel_id)) {
+      errosValidacao.push(`UUID inválido: ${item.imovel_id}`);
+    }
+
+    // Valida período
+    if (!item.periodo || !isValidPeriod(item.periodo)) {
+      errosValidacao.push(`Período inválido: ${item.periodo}`);
+    }
+
+    if (errosValidacao.length > 0) {
+      console.warn(`⚠️ [${new Date().toLocaleTimeString()}] Registro inválido: ${errosValidacao.join(', ')}`);
+
+      // Cria auditoria para a coluna erro
+      const auditoriaErro = criarAuditoriaErro(
+        'VALIDACAO_FALHOU',
+        item,
+        new Error(errosValidacao.join('; ')),
+        {
+          erros: errosValidacao,
+          imovel_id: item.imovel_id,
+          periodo: item.periodo
+        }
+      );
+
+      registrosInvalidos.push({
+        ...item,
+        erro: auditoriaErro
+      });
+      continue;
+    }
+
+    registrosValidos.push({
       imovel_id: item.imovel_id,
       periodo: item.periodo,
       potencial_score: item.potencial_score,
@@ -206,28 +337,249 @@ async function processarLotes(imoveis, tamanhoLote = 50) {
       potencial_cadastro: item.potencial_cadastro,
       potencial_medicao: item.potencial_medicao,
       potencial_inadimplencia: item.potencial_inadimplencia,
-      motivo: item.motivo,
-      acao_sugerida: item.acao_sugerida,
-      justificativa_curta: item.justificativa_curta,
+      motivo: item.motivo || "",
+      acao_sugerida: item.acao_sugerida || "",
+      justificativa_curta: item.justificativa_curta || "",
       erro: item.erro || null,
-    }));
+    });
+  }
 
-    console.log(`💾 [${new Date().toLocaleTimeString()}] Fazendo upsert de ${registros.length} registros...`);
+  console.log(`✅ [${new Date().toLocaleTimeString()}] Registros válidos: ${registrosValidos.length}, inválidos: ${registrosInvalidos.length}`);
+
+  // Remove duplicatas baseado em imovel_id + periodo
+  const registrosUnicos = [];
+  const chavesVistas = new Set();
+
+  for (const registro of registrosValidos) {
+    const chave = `${registro.imovel_id}-${registro.periodo}`;
+    if (!chavesVistas.has(chave)) {
+      chavesVistas.add(chave);
+      registrosUnicos.push(registro);
+    } else {
+      console.warn(`⚠️ [${new Date().toLocaleTimeString()}] Registro duplicado ignorado: ${chave}`);
+
+      // Cria auditoria da duplicata para salvar na coluna erro
+      const auditoriaDuplicata = criarAuditoriaErro(
+        'REGISTRO_DUPLICADO',
+        registro,
+        new Error(`Registro duplicado: ${chave}`),
+        { chave_duplicata: chave }
+      );
+
+      // Salva o registro duplicado com auditoria na coluna erro
+      try {
+        await supabase
+          .from("potencial_receita_imovel")
+          .upsert([{
+            ...registro,
+            erro: auditoriaDuplicata
+          }], {
+            onConflict: 'imovel_id,periodo',
+            ignoreDuplicates: false
+          });
+        console.log(`📋 [${new Date().toLocaleTimeString()}] Registro duplicado salvo com auditoria`);
+      } catch (dupErr) {
+        console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar duplicata:`, dupErr.message);
+        console.log(auditoriaDuplicata);
+      }
+    }
+  }
+
+  console.log(`🔄 [${new Date().toLocaleTimeString()}] Após remoção de duplicatas: ${registrosUnicos.length} registros`);
+
+  if (registrosUnicos.length === 0) {
+    console.log(`⚠️ [${new Date().toLocaleTimeString()}] Nenhum registro válido para salvar`);
+    return;
+  }
+
+  // Salva registros válidos
+  try {
+    console.log(`💾 [${new Date().toLocaleTimeString()}] Fazendo upsert de ${registrosUnicos.length} registros...`);
 
     const { error } = await supabase
       .from("potencial_receita_imovel")
-      .upsert(registros, { 
+      .upsert(registrosUnicos, {
         onConflict: 'imovel_id,periodo',
-        ignoreDuplicates: false 
+        ignoreDuplicates: false
       });
 
     if (error) {
       console.error("Erro ao fazer upsert no Supabase:", error);
+
+      // Cria auditoria do erro de upsert em lote
+      const auditoriaErroLote = criarAuditoriaErro(
+        'UPSERT_LOTE_FALHOU',
+        registrosUnicos,
+        error,
+        {
+          total_registros: registrosUnicos.length,
+          operacao: 'upsert_lote'
+        }
+      );
+
+      console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de erro de lote criada`);
+      console.log(auditoriaErroLote);
       throw error;
     }
 
     console.log(`✅ [${new Date().toLocaleTimeString()}] Upsert realizado com sucesso!`);
+  } catch (err) {
+    console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no upsert:`, err.message);
+
+    // Se falhar, tenta salvar um por vez para identificar o problema específico
+    console.log(`🔄 [${new Date().toLocaleTimeString()}] Tentando salvar registros individualmente...`);
+
+    let sucessosIndividuais = 0;
+    let errosIndividuais = 0;
+
+    for (const registro of registrosUnicos) {
+      try {
+        const { error } = await supabase
+          .from("potencial_receita_imovel")
+          .upsert([registro], {
+            onConflict: 'imovel_id,periodo',
+            ignoreDuplicates: false
+          });
+
+        if (error) {
+          console.error(`❌ Erro ao salvar registro ${registro.imovel_id}:`, error.message);
+
+          // Cria auditoria do erro individual e salva na coluna erro
+          const auditoriaErroIndividual = criarAuditoriaErro(
+            'UPSERT_INDIVIDUAL_FALHOU',
+            registro,
+            error,
+            {
+              imovel_id: registro.imovel_id,
+              periodo: registro.periodo,
+              operacao: 'upsert_individual'
+            }
+          );
+
+          // Tenta salvar o registro com erro na coluna erro
+          try {
+            await supabase
+              .from("potencial_receita_imovel")
+              .upsert([{
+                ...registro,
+                erro: auditoriaErroIndividual
+              }], {
+                onConflict: 'imovel_id,periodo',
+                ignoreDuplicates: false
+              });
+            console.log(`📋 [${new Date().toLocaleTimeString()}] Registro com erro individual salvo`);
+          } catch (saveErr) {
+            console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registro com erro:`, saveErr.message);
+            console.log(auditoriaErroIndividual);
+          }
+
+          errosIndividuais++;
+        } else {
+          sucessosIndividuais++;
+        }
+      } catch (individualErr) {
+        console.error(`❌ Erro individual para ${registro.imovel_id}:`, individualErr.message);
+
+        // Cria auditoria do erro individual e salva na coluna erro
+        const auditoriaErroException = criarAuditoriaErro(
+          'UPSERT_INDIVIDUAL_EXCEPTION',
+          registro,
+          individualErr,
+          {
+            imovel_id: registro.imovel_id,
+            periodo: registro.periodo,
+            operacao: 'upsert_individual'
+          }
+        );
+
+        // Tenta salvar o registro com erro na coluna erro
+        try {
+          await supabase
+            .from("potencial_receita_imovel")
+            .upsert([{
+              ...registro,
+              erro: auditoriaErroException
+            }], {
+              onConflict: 'imovel_id,periodo',
+              ignoreDuplicates: false
+            });
+          console.log(`📋 [${new Date().toLocaleTimeString()}] Registro com exceção individual salvo`);
+        } catch (saveErr) {
+          console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registro com exceção:`, saveErr.message);
+          console.log(auditoriaErroException);
+        }
+
+        errosIndividuais++;
+      }
+    }
+
+    console.log(`📊 [${new Date().toLocaleTimeString()}] Resultado individual: ${sucessosIndividuais} sucessos, ${errosIndividuais} erros`);
   }
+
+  // Salva registros inválidos com erro na tabela principal
+  if (registrosInvalidos.length > 0) {
+    console.log(`💾 [${new Date().toLocaleTimeString()}] Salvando ${registrosInvalidos.length} registros com erro...`);
+
+    try {
+      const registrosComErro = registrosInvalidos.map(item => ({
+        imovel_id: item.imovel_id || null,
+        periodo: item.periodo || new Date().toISOString().slice(0, 7) + '-01',
+        potencial_score: null,
+        potencial_nivel: null,
+        potencial_cadastro: null,
+        potencial_medicao: null,
+        potencial_inadimplencia: null,
+        motivo: "",
+        acao_sugerida: "",
+        justificativa_curta: "",
+        erro: item.erro || criarAuditoriaErro('DADOS_INVALIDOS', item, new Error("Dados inválidos"), {})
+      }));
+
+      const { error } = await supabase
+        .from("potencial_receita_imovel")
+        .upsert(registrosComErro, {
+          onConflict: 'imovel_id,periodo',
+          ignoreDuplicates: false
+        });
+
+      if (error) {
+        console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registros com erro:`, error.message);
+
+        // Cria auditoria do erro ao salvar registros inválidos
+        const auditoriaErroInvalidos = criarAuditoriaErro(
+          'SALVAR_REGISTROS_INVALIDOS_FALHOU',
+          registrosComErro,
+          error,
+          {
+            total_registros_invalidos: registrosInvalidos.length,
+            operacao: 'salvar_registros_invalidos'
+          }
+        );
+
+        console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de erro ao salvar inválidos criada`);
+        console.log(auditoriaErroInvalidos);
+      } else {
+        console.log(`✅ [${new Date().toLocaleTimeString()}] Registros com erro salvos com sucesso!`);
+      }
+    } catch (err) {
+      console.error(`❌ [${new Date().toLocaleTimeString()}] Erro ao salvar registros com erro:`, err.message);
+
+      // Cria auditoria do erro ao salvar registros inválidos
+      const auditoriaErroException = criarAuditoriaErro(
+        'SALVAR_REGISTROS_INVALIDOS_EXCEPTION',
+        registrosInvalidos,
+        err,
+        {
+          total_registros_invalidos: registrosInvalidos.length,
+          operacao: 'salvar_registros_invalidos'
+        }
+      );
+
+      console.log(`📋 [${new Date().toLocaleTimeString()}] Auditoria de exceção ao salvar inválidos criada`);
+      console.log(auditoriaErroException);
+    }
+  }
+}
 
 // 6. Rotas
 // healthcheck
@@ -235,7 +587,7 @@ app.get("/healthz", (req, res) => {
   res.json({ ok: true });
 });
 
-// webhook (já testado)
+// webhook
 app.post("/webhook", (req, res) => {
   try {
     const { ano, mes, setores } = req.body;
@@ -260,125 +612,89 @@ app.post("/webhook", (req, res) => {
   }
 });
 
-// rota de teste supabase
-app.get("/testar-supabase/:ano/:mes/:setor", async (req, res) => {
+// rota para consultar erros da tabela principal
+app.get("/erros", async (req, res) => {
   try {
-    const { ano, mes, setor } = req.params;
-    const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
+    const { limit = 50, offset = 0, tipo_erro } = req.query;
 
-    const imoveis = await buscarImoveis(periodo, setor);
+    let query = supabase
+      .from("potencial_receita_imovel")
+      .select("*")
+      .not("erro", "is", null)
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
-    res.json({
-      periodo,
-      setor,
-      qtd: imoveis.length,
-      exemplo: imoveis[0] || null,
-    });
-  } catch (err) {
-    res.status(500).json({ erro: err.message });
-  }
-});
+    const { data, error } = await query;
 
-// rota de teste gpt
-app.get("/testar-gpt/:ano/:mes/:setor", async (req, res) => {
-  try {
-    const { ano, mes, setor } = req.params;
-    const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
-
-    const imoveis = await buscarImoveis(periodo, setor);
-    if (!imoveis.length) {
-      return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
+    if (error) {
+      console.error("Erro ao buscar registros com erro:", error);
+      return res.status(500).json({ erro: error.message });
     }
 
-    const imovel = imoveis[0];
-    const resposta = await avaliarLote([imovel]); // Passa como array de 1 elemento
-
-    res.json({ enviado: imovel, resposta });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: err.message });
-  }
-});
-
-// rota de teste gpt com quantidade específica
-app.get("/testar-gpt/:ano/:mes/:setor/:quantidade", async (req, res) => {
-  try {
-    const { ano, mes, setor, quantidade } = req.params;
-    const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
-    const qtd = parseInt(quantidade);
-
-    // Validação da quantidade
-    if (isNaN(qtd) || qtd < 1 || qtd > 100) {
-      return res.status(400).json({ 
-        erro: "Quantidade deve ser um número entre 1 e 100" 
+    // Filtra por tipo de erro se especificado
+    let dadosFiltrados = data;
+    if (tipo_erro) {
+      dadosFiltrados = data.filter(registro => {
+        try {
+          const erroObj = JSON.parse(registro.erro);
+          return erroObj.tipo_erro === tipo_erro;
+        } catch {
+          return false;
+        }
       });
     }
 
-    console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando ${qtd} imóveis para teste...`);
-    const imoveis = await buscarImoveis(periodo, setor);
-
-    if (!imoveis.length) {
-      return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
-    }
-
-    // Pega apenas a quantidade solicitada
-    const imoveisParaTeste = imoveis.slice(0, qtd);
-
-    console.log(`🚀 [${new Date().toLocaleTimeString()}] Iniciando teste com ${imoveisParaTeste.length} imóveis...`);
-    const resposta = await avaliarLote(imoveisParaTeste);
-
-    res.json({ 
-      periodo,
-      setor,
-      quantidade_solicitada: qtd,
-      quantidade_encontrada: imoveis.length,
-      quantidade_processada: imoveisParaTeste.length,
-      resposta 
+    res.json({
+      total: dadosFiltrados.length,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      dados: dadosFiltrados
     });
+
   } catch (err) {
-    console.error(`❌ [${new Date().toLocaleTimeString()}] Erro no teste:`, err);
+    console.error("Erro na consulta de erros:", err);
     res.status(500).json({ erro: err.message });
   }
 });
 
 // rota de salvar potenciais
 app.get("/rodar/:ano/:mes/:setor", async (req, res) => {
-    try {
-      const { ano, mes, setor } = req.params;
-      const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
+  try {
+    const { ano, mes, setor } = req.params;
+    const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
 
-      console.log(`🚀 [${new Date().toLocaleTimeString()}] ===== INICIANDO PROCESSAMENTO =====`);
-      console.log(`📅 Período: ${periodo} | 🏘️ Setor: ${setor}`);
+    console.log(`🚀 [${new Date().toLocaleTimeString()}] ===== INICIANDO PROCESSAMENTO =====`);
+    console.log(`📅 Período: ${periodo} | 🏘️ Setor: ${setor}`);
 
-      // Busca imóveis
-      console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando imóveis no Supabase...`);
-      const imoveis = await buscarImoveis(periodo, setor);
-      if (!imoveis.length) {
-        console.log(`❌ [${new Date().toLocaleTimeString()}] Nenhum imóvel encontrado`);
-        return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
-      }
-
-      console.log(`✅ [${new Date().toLocaleTimeString()}] Encontrados ${imoveis.length} imóveis para processar`);
-
-      // Processa em lotes de 50 automaticamente
-      const resultado = await processarLotes(imoveis, 50);
-
-      res.json({
-        setor,
-        periodo,
-        total_imoveis: resultado.total_imoveis,
-        total_lotes: resultado.total_lotes,
-        sucessos: resultado.sucessos,
-        erros: resultado.erros,
-        total_processados: resultado.total_processados,
-        resultados_por_lote: resultado.resultados_por_lote
-      });
-
-    } catch (err) {
-      console.error(`💥 [${new Date().toLocaleTimeString()}] Erro geral:`, err);
-      res.status(500).json({ erro: err.message });
+    // Busca imóveis
+    console.log(`🔍 [${new Date().toLocaleTimeString()}] Buscando imóveis no Supabase...`);
+    const imoveis = await buscarImoveis(periodo, setor);
+    if (!imoveis.length) {
+      console.log(`❌ [${new Date().toLocaleTimeString()}] Nenhum imóvel encontrado`);
+      return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
     }
-  });
+
+    console.log(`✅ [${new Date().toLocaleTimeString()}] Encontrados ${imoveis.length} imóveis para processar`);
+
+    // Processa em lotes de 50 automaticamente
+    const resultado = await processarLotes(imoveis, 5);
+
+    res.json({
+      setor,
+      periodo,
+      total_imoveis: resultado.total_imoveis,
+      total_lotes: resultado.total_lotes,
+      sucessos: resultado.sucessos,
+      erros: resultado.erros,
+      total_processados: resultado.total_processados,
+      resultados_por_lote: resultado.resultados_por_lote
+    });
+
+  } catch (err) {
+    console.error(`💥 [${new Date().toLocaleTimeString()}] Erro geral:`, err);
+    res.status(500).json({ erro: err.message });
+  }
+});
 
 // 7. Start server
 app.listen(PORT, () => {
