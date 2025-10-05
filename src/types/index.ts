@@ -1,8 +1,3 @@
-// types/index.ts
-// -------------------------------------------------------
-// Tipagens para API de cálculo por estratégia de RANGES + POLICY local
-// -------------------------------------------------------
-
 // Regra por pedaços para uma feature (igual ao $defs/piecewise_rule)
 export type PiecewiseRule = {
     feature: string;
@@ -52,20 +47,51 @@ export type PotencialReceitaPolicy = {
     };
 };
 
-// Registro vindo do Supabase (ajuste os nomes conforme seu schema real)
+// CANÔNICO (o que o cálculo usa) — sempre presente com null quando faltar
 export type ImovelAgregado = {
     imovel_id: string;
-    periodo: string; // YYYY-MM-DD
+    periodo: string;   // YYYY-MM-DD
     setor: string;
-    meter_age_years?: number | null;
-    anomaly_rate?: number | null;           // 0..1
-    consumption_cv?: number | null;         // 0..?
-    inconsistencias_rate?: number | null;   // 0..1
-    delinquency_days?: number | null;       // dias
-    open_invoices_count?: number | null;
-    open_amount_ratio?: number | null;      // 0..1
-    // ... outros campos que não usamos no cálculo
-};
+  
+    meter_age_years: number | null;
+    anomaly_rate: number | null;
+    consumption_cv: number | null;
+    inconsistencias_rate: number | null; // sem fonte por enquanto
+    delinquency_days: number | null;
+    open_invoices_count: number | null;
+    open_amount_ratio: number | null;
+  };
+
+  // RAW do banco (o que o Supabase retorna)
+export type ImovelHistoricoAgregadoRaw = {
+    id: string;
+    imovel_id: string;
+    periodo: string;          // YYYY-MM-DD
+    setor: string;
+  
+    janela_meses: number | null;
+    qtd_contas_abertas: number | null;
+  
+    valor_total_aberto: string | null;   // numeric -> string
+    media_tempo_atraso: string | null;   // numeric
+    indice_inadimplencia: string | null; // numeric
+    media_consumo_m3: string | null;     // numeric
+    std_consumo_m3: string | null;       // numeric
+    coef_var_consumo: string | null;     // numeric
+    taxa_anomalias: string | null;       // numeric
+    consumo_min_m3: string | null;       // numeric
+    consumo_max_m3: string | null;       // numeric
+  
+    idade_hidrometro_meses: number | null;
+  
+    // demais campos
+    sit_ligacao_agua: string | null;
+    sit_ligacao_esgoto: string | null;
+    municipio: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+  };
+  
 
 // Saída a persistir
 export type PotencialOutput = {

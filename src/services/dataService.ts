@@ -2,10 +2,9 @@
 // -------------------------------------------------------
 // Serviço para operações de dados no Supabase
 // -------------------------------------------------------
-
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ImovelAgregado, PotencialOutput } from '../types';
-import { criarAuditoriaErro, isValidPeriod, isValidUUID } from '../utils';
+import { ImovelAgregado, ImovelHistoricoAgregadoRaw, PotencialOutput } from '../types';
+import { criarAuditoriaErro, isValidPeriod, isValidUUID, toCanonical } from '../utils';
 
 export class DataService {
     private supabase: SupabaseClient;
@@ -32,8 +31,16 @@ export class DataService {
             throw error;
         }
 
-        console.log(`[DATA_SERVICE] Busca concluída em ${queryTime}ms: ${(data || []).length} imóveis encontrados`);
-        return (data || []) as ImovelAgregado[];
+        const rawRecords = data || [] as ImovelHistoricoAgregadoRaw[];
+        console.log(`[DATA_SERVICE] Busca concluída em ${queryTime}ms: ${rawRecords.length} imóveis encontrados`);
+
+        if (rawRecords.length === 0) {
+            return [];
+        }
+
+        // Normalizar registros para nomes canônicos
+        console.log(`[DATA_SERVICE] Normalizando registros para nomes canônicos...`);
+        return rawRecords.map(record => toCanonical(record));
     }
 
     // Salva potenciais calculados com validação e auditoria
@@ -171,4 +178,17 @@ export class DataService {
 
         return { total: dadosFiltrados.length, limit: lim, offset: off, dados: dadosFiltrados };
     }
+}
+
+
+const coverageLog = (coverage: any) => {
+    console.log(`[DATA_SERVICE] Cobertura por campo:`);
+    for (const [field, rate] of Object.entries(coverage.fields)) {
+        console.log(`[DATA_SERVICE]   ${field}: ${(rate as number * 100).toFixed(1)}%`);
+    }
+
+    console.log(`[DATA_SERVICE] Cobertura por família:`);
+    console.log(`[DATA_SERVICE]   cadastro: ${(coverage.families.cadastro * 100).toFixed(1)}%`);
+    console.log(`[DATA_SERVICE]   medicao: ${(coverage.families.medicao * 100).toFixed(1)}%`);
+    console.log(`[DATA_SERVICE]   inadimplencia: ${(coverage.families.inadimplencia * 100).toFixed(1)}%`);
 }

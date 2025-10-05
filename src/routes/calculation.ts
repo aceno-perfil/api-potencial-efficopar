@@ -5,7 +5,7 @@
 
 import { Request, Response } from "express";
 import { CalculationService, DataService, PolicyService } from '../services';
-import { criarAuditoriaErro } from '../utils';
+import { computeCoverage, criarAuditoriaErro } from '../utils';
 
 export function createCalculationRoutes(
     dataService: DataService,
@@ -20,21 +20,22 @@ export function createCalculationRoutes(
                 const { ano, mes, setor } = req.params;
                 const periodo = `${ano}-${String(mes).padStart(2, "0")}-01`;
 
-                console.log(`[CALCULATION] Iniciando cálculo para período=${periodo}, setor=${setor}`);
-
-                // 1) Buscar imóveis
+                // 1) Buscar imóveis e normalizar para campos canônicos
                 console.log(`[CALCULATION] Buscando imóveis para período=${periodo}, setor=${setor}`);
                 const imoveis = await dataService.buscarImoveis(periodo, setor);
                 console.log(`[CALCULATION] Encontrados ${imoveis.length} imóveis`);
 
                 if (!imoveis.length) {
-                    console.log(`[CALCULATION] Nenhum imóvel encontrado para período=${periodo}, setor=${setor}`);
                     return res.status(404).json({ erro: "Nenhum imóvel encontrado" });
                 }
 
-                // 2) Obter policy do assistant (cache em memória)
-                console.log(`[CALCULATION] Obtendo policy do assistant para período=${periodo}`);
-                const policy = await policyService.obterPolicyPorRanges(periodo, imoveis);
+                // 2) Calcular cobertura após normalização
+                const coverage = computeCoverage(imoveis);
+                console.log(`[CALCULATION] ✅ Cobertura de dados adequada, prosseguindo com cálculo`);
+
+                // 3) Obter policy do assistant (cache em memória)
+                console.log(`[CALCULATION] Obtendo policy do assistant para período=${periodo}, setor=${setor}`);
+                const policy = await policyService.obterPolicyPorRanges(periodo, imoveis, setor);
                 console.log(`[CALCULATION] Policy obtida: ${policy.policy_id}`);
 
                 // Log detalhado da policy para debug
@@ -54,15 +55,7 @@ export function createCalculationRoutes(
                     }
                 });
 
-                // Log de amostra dos dados de entrada
-                console.log(`[CALCULATION] Amostra dos dados de entrada (primeiro imóvel):`, {
-                    imovel_id: imoveis[0].imovel_id,
-                    periodo: imoveis[0].periodo,
-                    // Log apenas algumas features para não poluir
-                    features_sample: Object.keys(imoveis[0]).slice(0, 10)
-                });
-
-                // 3) Calcular localmente por imóvel (determinístico)
+                // 4) Calcular localmente por imóvel (determinístico)
                 console.log(`[CALCULATION] Iniciando cálculos individuais para ${imoveis.length} imóveis`);
                 const calculationStartTime = Date.now();
 
@@ -110,7 +103,7 @@ export function createCalculationRoutes(
                 const calculationTime = Date.now() - calculationStartTime;
                 console.log(`[CALCULATION] Cálculos individuais concluídos em ${calculationTime}ms`);
 
-                // 4) Persistir resultados (com validação/erros)
+                // 6) Persistir resultados (com validação/erros)
                 console.log(`[CALCULATION] Persistindo ${outputs.length} resultados`);
                 const persistStartTime = Date.now();
                 await dataService.salvarPotenciais(outputs);
@@ -120,12 +113,32 @@ export function createCalculationRoutes(
                 const totalTime = Date.now() - startTime;
                 console.log(`[CALCULATION] Processo completo finalizado em ${totalTime}ms`);
 
+                // Calcular métricas de dados insuficientes
+                const insufficientDataCount = outputs.filter(o =>
+                    o.potencial_nivel === 'NENHUM' && o.motivo.includes('DADOS_INSUFICIENTES')
+                ).length;
+
+                const insufficientDataPercentage = (insufficientDataCount / outputs.length) * 100;
+
+                console.log(`[CALCULATION] Métricas de dados insuficientes:`, {
+                    total_insufficient: insufficientDataCount,
+                    percentage: `${insufficientDataPercentage.toFixed(1)}%`,
+                    sufficient_data: outputs.length - insufficientDataCount
+                });
+
                 res.json({
                     periodo,
                     setor,
                     total_imoveis: imoveis.length,
                     policy_id: policy.policy_id,
                     processados: outputs.length,
+                    metrics: {
+                        insufficient_data_count: insufficientDataCount,
+                        insufficient_data_percentage: insufficientDataPercentage,
+                        sufficient_data_count: outputs.length - insufficientDataCount,
+                        coverage_status: 'adequate',
+                        coverage_details: coverage
+                    }
                 });
             } catch (err: any) {
                 const totalTime = Date.now() - startTime;

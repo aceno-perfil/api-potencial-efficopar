@@ -22,10 +22,13 @@ importers:
         version: 5.1.0
       openai:
         specifier: ^4.104.0
-        version: 4.104.0(ws@8.18.3)
+        version: 4.104.0(ws@8.18.3)(zod@4.1.11)
       tsx:
         specifier: ^4.20.6
         version: 4.20.6
+      zod:
+        specifier: ^4.1.11
+        version: 4.1.11
 
 packages:
 
@@ -652,6 +655,9 @@ packages:
       utf-8-validate:
         optional: true
 
+  zod@4.1.11:
+    resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.25.10':
@@ -1124,7 +1130,7 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@4.104.0(ws@8.18.3):
+  openai@4.104.0(ws@8.18.3)(zod@4.1.11):
     dependencies:
       '@types/node': 18.19.129
       '@types/node-fetch': 2.6.13
@@ -1135,6 +1141,7 @@ snapshots:
       node-fetch: 2.7.0
     optionalDependencies:
       ws: 8.18.3
+      zod: 4.1.11
     transitivePeerDependencies:
       - encoding
 
@@ -1272,3 +1279,5 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.18.3: {}
+
+  zod@4.1.11: {}
