@@ -1,5 +1,5 @@
 # Use official Node.js LTS image as the build base
-FROM node:20-alpine AS base
+FROM node:24.9.0-alpine3.22 AS base
 
 # set working directory
 WORKDIR /usr/src/app
@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 COPY package.json package-lock.json* ./
 
 # install production dependencies
-RUN npm ci --only=production --silent || npm install --only=production --silent
+RUN npm ci --only=production --silent --force || npm install --only=production --silent --force
 
 # copy app sources
 # .dockerignore prevents copying secrets and node_modules
@@ -23,4 +23,4 @@ RUN addgroup -S app && adduser -S app -G app
 USER app
 
 # container should be started with the runtime env (OPENAI_API_KEY, SUPABASE_*)
-CMD ["npm", "start"]
+CMD ["npm", "run", "start:node"]
