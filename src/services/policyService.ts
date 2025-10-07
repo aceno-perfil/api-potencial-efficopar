@@ -1,6 +1,7 @@
 import OpenAI from "openai";
-import { ImovelAgregado, PotencialReceitaPolicy } from "../types";
+import { CompactPolicyParametros, ImovelAgregado, PotencialReceitaPolicy } from "../types";
 import {
+    COMPACT_POLICY_JSON_SCHEMA,
     DEFAULT_BREAKS,
     histogram,
     POLICY_JSON_SCHEMA,
@@ -178,5 +179,114 @@ export class PolicyService {
             `[POLICY_SERVICE] Policy obtida para ${cacheKey} em ${totalTime}ms`
         );
         return validatedPolicy;
+    }
+
+    // Obtém a policy no formato compact via assistant (nova implementação)
+    async obterCompactPolicyPorRanges(
+        periodo: string,
+        imoveis: ImovelAgregado[],
+        setor?: string
+    ): Promise<CompactPolicyParametros> {
+        const startTime = Date.now();
+        const cacheKey = `compact_global`; // Cache global, não por período
+        const cached = this.policyCache.get(cacheKey);
+
+        if (cached) {
+            const ttlMs = 24 * 60 * 60 * 1000; // 1 dia de cache para compact
+            if (Date.now() - cached.cachedAt < ttlMs) {
+                console.log(
+                    `[POLICY_SERVICE] Cache hit para compact policy global (TTL ${ttlMs}ms)`
+                );
+                return cached.policy as unknown as CompactPolicyParametros;
+            }
+            this.policyCache.delete(cacheKey);
+            console.log(`[POLICY_SERVICE] Cache expirado para compact policy global`);
+        }
+
+        console.log(
+            `[POLICY_SERVICE] Gerando payload agregado para compact policy global (${imoveis.length} imóveis)`
+        );
+        const aggregatedPayload = this.buildAggregatedPayload(periodo, imoveis);
+
+        // Thread
+        const thread = await this.openai.beta.threads.create();
+        await this.openai.beta.threads.messages.create(thread.id, {
+            role: "user",
+            content: JSON.stringify(aggregatedPayload),
+        });
+
+        // Run com response_format compact
+        let run = await this.openai.beta.threads.runs.create(thread.id, {
+            assistant_id: this.assistantId,
+            response_format: {
+                type: "json_schema",
+                json_schema: COMPACT_POLICY_JSON_SCHEMA,
+            },
+        });
+
+        // Polling simples
+        let attempts = 0;
+        const maxAttempts = 60;
+        while (
+            run.status !== "completed" &&
+            run.status !== "failed" &&
+            run.status !== "cancelled" &&
+            run.status !== "expired" &&
+            attempts < maxAttempts
+        ) {
+            attempts++;
+            await new Promise((r) => setTimeout(r, 1000));
+            run = await this.openai.beta.threads.runs.retrieve(thread.id, run.id);
+            console.log(
+                `[POLICY_SERVICE] Esperando assistant compact (tentativa ${attempts}/${maxAttempts}) status=${run.status}`
+            );
+        }
+
+        if (run.status !== "completed") {
+            throw new Error(`Assistant compact ${run.status} após ${attempts} tentativas`);
+        }
+
+        // Pega a última mensagem do assistant
+        const messages = await this.openai.beta.threads.messages.list(thread.id);
+        const lastAssistant = messages.data
+            .filter((m) => m.role === "assistant")
+            .sort(
+                (a: any, b: any) =>
+                    (a.created_at ?? 0) - (b.created_at ?? 0)
+            )
+            .at(-1);
+
+        const raw: string | undefined = lastAssistant?.content
+            ?.map((c: any) => c?.text?.value)
+            .find((v: any) => typeof v === "string");
+
+        if (!raw) throw new Error("Empty assistant compact response");
+
+        // Parse
+        let parsed: any;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (e: any) {
+            throw new Error(`Compact policy JSON parse error: ${e.message}`);
+        }
+
+        // Validação básica
+        if (!parsed.policy_id) {
+            throw new Error("Compact policy missing policy_id");
+        }
+
+        const compactPolicy = parsed as CompactPolicyParametros;
+
+        // Cache com timestamp
+        this.policyCache.set(cacheKey, {
+            policy: compactPolicy as any,
+            cachedAt: Date.now(),
+        });
+
+        const totalTime = Date.now() - startTime;
+        console.log(
+            `[POLICY_SERVICE] Compact policy global obtida em ${totalTime}ms`
+        );
+        return compactPolicy;
     }
 }

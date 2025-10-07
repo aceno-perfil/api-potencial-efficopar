@@ -131,3 +131,79 @@ export const POLICY_JSON_SCHEMA = {
     }
   }
 } as const;
+
+// Schema para o novo formato compact_policy_parametros
+export const COMPACT_POLICY_JSON_SCHEMA = {
+  name: "compact_policy_parametros",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      policy_id: { type: "string" },
+      familias: {
+        type: "object",
+        properties: {
+          cadastro: { type: "number", minimum: 0, maximum: 1 },
+          medicao: { type: "number", minimum: 0, maximum: 1 },
+          inadimplencia: { type: "number", minimum: 0, maximum: 1 }
+        },
+        required: ["cadastro", "medicao", "inadimplencia"],
+        additionalProperties: false
+      },
+      inadimplencia: {
+        type: "object",
+        properties: {
+          w_days: { type: "number", minimum: 0, maximum: 1 },
+          w_open_count: { type: "number", minimum: 0, maximum: 1 },
+          w_amount_ratio: { type: "number", minimum: 0, maximum: 1 },
+          trigger_ratio: { type: "number", minimum: 0, maximum: 1 },
+          penalty_max: { type: "number", minimum: 0, maximum: 1 },
+          curve: { type: "string", enum: ["linear", "log"] }
+        },
+        required: ["w_days", "w_open_count", "w_amount_ratio", "trigger_ratio", "penalty_max", "curve"],
+        additionalProperties: false
+      },
+      medicao: {
+        type: "object",
+        properties: {
+          w_idade: { type: "number", minimum: 0, maximum: 1 },
+          w_anomalias: { type: "number", minimum: 0, maximum: 1 },
+          w_desvio: { type: "number", minimum: 0, maximum: 1 }
+        },
+        required: ["w_idade", "w_anomalias", "w_desvio"],
+        additionalProperties: false
+      },
+      cadastro: {
+        type: "object",
+        properties: {
+          z_warn: { type: "number", minimum: 0, maximum: 1 },
+          z_risk: { type: "number", minimum: 0, maximum: 1 }
+        },
+        required: ["z_warn", "z_risk"],
+        additionalProperties: false
+      },
+      potencial: {
+        type: "object",
+        properties: {
+          pot_min: { type: "number", minimum: 0, maximum: 1 },
+          pot_max: { type: "number", minimum: 0, maximum: 1 }
+        },
+        required: ["pot_min", "pot_max"],
+        additionalProperties: false
+      },
+      classificacao: {
+        type: "object",
+        properties: {
+          baixo: { type: "number", minimum: 0, maximum: 100 },
+          medio: { type: "number", minimum: 0, maximum: 100 },
+          alto: { type: "number", minimum: 0, maximum: 100 },
+          nenhum_if_all_potentials_below: { type: "number", minimum: 0, maximum: 1 }
+        },
+        required: ["baixo", "medio", "alto", "nenhum_if_all_potentials_below"],
+        additionalProperties: false
+      }
+    },
+    required: ["policy_id", "familias", "inadimplencia", "medicao", "cadastro", "potencial", "classificacao"],
+    additionalProperties: false
+  }
+} as const;

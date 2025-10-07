@@ -116,3 +116,47 @@ export type FamilyPotentialResult = {
     value: number;
     missing: boolean;
 };
+
+// Tipos para a nova estrutura compact_policy_parametros
+export type CompactPolicyParametros = {
+    policy_id: string;
+    familias: {
+        cadastro: number;
+        medicao: number;
+        inadimplencia: number;
+    };
+    inadimplencia: {
+        w_days: number;
+        w_open_count: number;
+        w_amount_ratio: number;
+        trigger_ratio: number;
+        penalty_max: number;
+        curve: "linear" | "log";
+    };
+    medicao: {
+        w_idade: number;
+        w_anomalias: number;
+        w_desvio: number;
+    };
+    cadastro: {
+        z_warn: number;
+        z_risk: number;
+    };
+    potencial: {
+        pot_min: number;
+        pot_max: number;
+    };
+    classificacao: {
+        baixo: number;
+        medio: number;
+        alto: number;
+        nenhum_if_all_potentials_below: number;
+    };
+};
+
+// Tipo para linha de parâmetro na tabela parametros_risco (apenas colunas existentes)
+export type ParametroRow = {
+    nome: string;
+    valor_num: number | null;
+    valor_texto: string | null;
+};
