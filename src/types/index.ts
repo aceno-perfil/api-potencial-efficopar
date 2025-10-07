@@ -52,7 +52,7 @@ export type ImovelAgregado = {
     imovel_id: string;
     periodo: string;   // YYYY-MM-DD
     setor: string;
-  
+
     meter_age_years: number | null;
     anomaly_rate: number | null;
     consumption_cv: number | null;
@@ -60,18 +60,18 @@ export type ImovelAgregado = {
     delinquency_days: number | null;
     open_invoices_count: number | null;
     open_amount_ratio: number | null;
-  };
+};
 
-  // RAW do banco (o que o Supabase retorna)
+// RAW do banco (o que o Supabase retorna)
 export type ImovelHistoricoAgregadoRaw = {
     id: string;
     imovel_id: string;
     periodo: string;          // YYYY-MM-DD
     setor: string;
-  
+
     janela_meses: number | null;
     qtd_contas_abertas: number | null;
-  
+
     valor_total_aberto: string | null;   // numeric -> string
     media_tempo_atraso: string | null;   // numeric
     indice_inadimplencia: string | null; // numeric
@@ -81,17 +81,17 @@ export type ImovelHistoricoAgregadoRaw = {
     taxa_anomalias: string | null;       // numeric
     consumo_min_m3: string | null;       // numeric
     consumo_max_m3: string | null;       // numeric
-  
+
     idade_hidrometro_meses: number | null;
-  
+
     // demais campos
     sit_ligacao_agua: string | null;
     sit_ligacao_esgoto: string | null;
     municipio: string | null;
     created_at: string | null;
     updated_at: string | null;
-  };
-  
+};
+
 
 // Saída a persistir
 export type PotencialOutput = {
