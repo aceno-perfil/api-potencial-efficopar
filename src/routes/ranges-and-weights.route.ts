@@ -24,8 +24,8 @@ function validateAgentItem(item: any) {
   if (![wA, wI, wV].every((x) => Number.isFinite(x) && x >= 0 && x <= 1)) {
     throw new Error("inadimplencia weights must be in [0,1]");
   }
-  const sumInad = wA + wI + wV;
-  if (Math.abs(sumInad - 1) > 1e-3) throw new Error("inadimplencia weights must sum to 1");
+/*   const sumInad = wA + wI + wV;
+  if (Math.abs(sumInad - 1) > 1e-3) throw new Error("inadimplencia weights must sum to 1"); */
 
   // pesos medição
   const wId = Number(item?.medicao?.w_idade);

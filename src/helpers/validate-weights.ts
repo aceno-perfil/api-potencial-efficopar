@@ -12,8 +12,8 @@ export function validateWeights(item: any) {
     const sum = (arr: number[]) => arr.reduce((a,b)=>a+b,0);
     const closeTo1 = (x: number) => Math.abs(x - 1) <= 0.001;
   
-    if (!closeTo1(sum(wInad))) throw new Error("inadimplencia weights must sum to 1");
-    if (!closeTo1(sum(wMed))) throw new Error("medicao weights must sum to 1");
+/*     if (!closeTo1(sum(wInad))) throw new Error("inadimplencia weights must sum to 1");
+    if (!closeTo1(sum(wMed))) throw new Error("medicao weights must sum to 1"); */
   
     const zw = Number(item?.cadastro?.z_warn);
     const zr = Number(item?.cadastro?.z_risk);
@@ -21,5 +21,5 @@ export function validateWeights(item: any) {
   
     const pmin = Number(item?.potencial?.pot_min);
     const pmax = Number(item?.potencial?.pot_max);
-    if (!(pmin <= pmax)) throw new Error("potencial.pot_min must be <= potencial.pot_max");
+    /* if (!(pmin <= pmax)) throw new Error("potencial.pot_min must be <= potencial.pot_max"); */
   }

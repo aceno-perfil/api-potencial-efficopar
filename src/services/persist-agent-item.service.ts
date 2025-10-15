@@ -2,7 +2,8 @@ import { supabase } from "../database/supabase";
 import { isUUIDv4, validateWeights } from "../helpers";
 
 // ---- Persistência dos pesos ----
-const GROUP_PARAM_NAMES = [
+function getParamNames(includePotencial: boolean = false): string[] {
+  const baseParams = [
     "w_atraso",
     "w_indice",
     "w_valor_aberto",
@@ -12,6 +13,13 @@ const GROUP_PARAM_NAMES = [
     "z_warn",
     "z_risk"
   ];
+  
+  if (includePotencial) {
+    return [...baseParams, "pot_min", "pot_max"];
+  }
+  
+  return baseParams;
+}
 
 function formatParamName(baseName: string, periodo?: string, janelaMeses?: number): string {
   if (!periodo) return baseName;
@@ -21,7 +29,7 @@ function formatParamName(baseName: string, periodo?: string, janelaMeses?: numbe
   return `${baseName}::${month}${janela}`;
 }
 
-export async function persistAgentItem(item, periodo?: string, janelaMeses?: number) {
+export async function persistAgentItem(item, periodo?: string, janelaMeses?: number, savePotencial: boolean = false) {
     // Decide setor (texto) x grupo (UUID)
     const id = String(item?.setor_id ?? "");
     if (!id) throw new Error("missing setor_id in agent item");
@@ -49,7 +57,7 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
   
       // Extrai nomes base dos parâmetros esperados
       const expectedNames = new Set(
-        GROUP_PARAM_NAMES.map(key => formatParamName(key, periodo, janelaMeses))
+        getParamNames(savePotencial).map(key => formatParamName(key, periodo, janelaMeses))
       );
       const toDelIds = (oldRows ?? [])
         .filter(r => expectedNames.has(String(r.nome)))
@@ -64,7 +72,7 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
       }
   
       // insere novos
-      const rows = extractParamsToRows(item, periodo, janelaMeses).map(r => ({
+      const rows = extractParamsToRows(item, periodo, janelaMeses, savePotencial).map(r => ({
         grupo_id: id,
         nome: r.name,
         valor_num: r.value,
@@ -77,7 +85,7 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
   
     } else {
       // ---- Setor → parametros_risco (nome codifica o setor) ----
-      const names = toSetorParamNames(id, periodo, janelaMeses);
+      const names = toSetorParamNames(id, periodo, janelaMeses, savePotencial);
       // apaga antigos por nome prefixado (considera período e janela se fornecidos)
       let query = supabase
         .from("parametros_risco")
@@ -106,7 +114,7 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
         if (delErr) throw delErr;
       }
   
-      const rows = extractParamsToRows(item, periodo, janelaMeses).map(r => ({
+      const rows = extractParamsToRows(item, periodo, janelaMeses, savePotencial).map(r => ({
         nome: `${id}__${r.name}`,
         valor_num: r.value,
         valor_texto: null,
@@ -118,14 +126,14 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
     }
   }
 
-  function toSetorParamNames(setor: string, periodo?: string, janelaMeses?: number) {
-    return GROUP_PARAM_NAMES.map(key => 
+  function toSetorParamNames(setor: string, periodo?: string, janelaMeses?: number, savePotencial: boolean = false) {
+    return getParamNames(savePotencial).map(key => 
       formatParamName(`${setor}__${key}`, periodo, janelaMeses)
     );
   }
   
-  function extractParamsToRows(item: any, periodo?: string, janelaMeses?: number) {
-    // retorna um array { name, value } para os 8 parâmetros
+  function extractParamsToRows(item: any, periodo?: string, janelaMeses?: number, savePotencial: boolean = false) {
+    // retorna um array { name, value } para 8 ou 10 parâmetros (dependendo de savePotencial)
     const rows: { name: string, value: any }[] = [];
     const addRow = (name: string, value: any) => {
       rows.push({ name: formatParamName(name, periodo, janelaMeses), value });
@@ -139,6 +147,12 @@ export async function persistAgentItem(item, periodo?: string, janelaMeses?: num
     addRow("w_desvio", item?.medicao?.w_desvio);
     addRow("z_warn", item?.cadastro?.z_warn);
     addRow("z_risk", item?.cadastro?.z_risk);
+    
+    // Adiciona pot_min e pot_max apenas se savePotencial = true
+    if (savePotencial) {
+      addRow("pot_min", item?.potencial?.pot_min);
+      addRow("pot_max", item?.potencial?.pot_max);
+    }
     
     return rows;
   }
