@@ -1,9 +1,3 @@
-// services/index.ts
-// -------------------------------------------------------
-// Exporta todos os serviços
-// -------------------------------------------------------
-
-export { CalculationService } from './calculationService';
-export { DataService } from './dataService';
-export { PolicyService } from './policyService';
-
+export * from './persist-agent-item.service';
+export * from './call-agent.service';
+export * from './create-or-update-group.service';

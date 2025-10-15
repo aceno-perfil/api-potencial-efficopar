@@ -1,0 +1,884 @@
+openapi: 3.0.3
+info:
+  title: API Potencial Efficopar
+  description: |
+    API para cálculo de potencial e análise de risco de inadimplência e medição.
+    
+    Esta API fornece endpoints para:
+    - Gerenciamento de grupos e setores
+    - Consulta de parâmetros de risco
+    - Cálculo de ranges e pesos automatizados
+    - Catálogo de entidades disponíveis
+  version: 1.0.0
+  contact:
+    name: Aceno
+    url: https://aceno.com.br
+
+servers:
+  - url: http://localhost:3000
+    description: Servidor de desenvolvimento
+  - url: https://api-potencial.efficopar.com.br
+    description: Servidor de produção
+
+tags:
+  - name: Grupos
+    description: Operações relacionadas a grupos de setores
+  - name: Parâmetros
+    description: Consulta de parâmetros de risco
+  - name: Catálogo
+    description: Informações sobre grupos e setores disponíveis
+  - name: Cálculo
+    description: Cálculo de ranges e pesos
+
+paths:
+  /grupos:
+    post:
+      tags:
+        - Grupos
+      summary: Criar ou atualizar grupo de setores
+      description: |
+        Cria um novo grupo de setores ou atualiza um existente caso o nome já exista.
+        O grupo permite agrupar múltiplos setores para análise conjunta.
+      operationId: createOrUpdateGroup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - setores
+              properties:
+                nome:
+                  type: string
+                  description: Nome do grupo (se não informado, será gerado automaticamente)
+                  example: "Grupo Central"
+                setores:
+                  type: array
+                  description: Lista de códigos dos setores que compõem o grupo
+                  minItems: 1
+                  items:
+                    type: string
+                  example: ["SETOR01", "SETOR02", "SETOR03"]
+            examples:
+              comNome:
+                summary: Criar grupo com nome específico
+                value:
+                  nome: "Grupo Industrial"
+                  setores: ["IND001", "IND002", "IND003"]
+              semNome:
+                summary: Criar grupo com nome automático
+                value:
+                  setores: ["COM001", "COM002"]
+      responses:
+        '200':
+          description: Grupo criado ou atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  grupo_id:
+                    type: string
+                    format: uuid
+                    description: ID do grupo criado/atualizado
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+                  message:
+                    type: string
+                    example: "Grupo criado/atualizado com sucesso"
+        '400':
+          description: Requisição inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                setoresVazio:
+                  value:
+                    error: "setores must be a non-empty array"
+        '500':
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /catalog:
+    get:
+      tags:
+        - Catálogo
+      summary: Obter catálogo de grupos e setores
+      description: |
+        Retorna o catálogo completo contendo:
+        - Grupos cadastrados com seus setores
+        - Lista de todos os setores com metadados de grupo
+        - Setores que existem no IHA mas não estão mapeados em grupos
+      operationId: getCatalog
+      responses:
+        '200':
+          description: Catálogo obtido com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grupos:
+                    type: array
+                    description: Lista de grupos cadastrados
+                    items:
+                      $ref: '#/components/schemas/GrupoComSetores'
+                  setores:
+                    type: array
+                    description: Lista completa de setores com metadados
+                    items:
+                      $ref: '#/components/schemas/SetorComGrupo'
+                  setores_sem_grupo:
+                    type: array
+                    description: Setores que existem no IHA mas não pertencem a nenhum grupo
+                    items:
+                      type: string
+                    example: ["SETOR99", "SETOR100"]
+                  total_grupos:
+                    type: integer
+                    description: Total de grupos cadastrados
+                    example: 15
+                  total_setores:
+                    type: integer
+                    description: Total de setores conhecidos
+                    example: 250
+                  total_setores_sem_grupo:
+                    type: integer
+                    description: Total de setores não mapeados
+                    example: 12
+        '500':
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /params:
+    get:
+      tags:
+        - Parâmetros
+      summary: Buscar parâmetros de um grupo ou setor específico
+      description: |
+        Retorna os parâmetros de risco configurados para um grupo (UUID) ou setor (código).
+        
+        Os parâmetros incluem:
+        - Pesos de inadimplência
+        - Pesos de medição
+        - Parâmetros de cadastro
+        - Parâmetros de potencial
+        
+        O sistema detecta automaticamente se o ID é um grupo (UUID) ou setor (texto).
+      operationId: getParams
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: UUID do grupo ou código do setor
+          schema:
+            type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        - name: escopo
+          in: query
+          required: false
+          description: Tipo de entidade (auto-detectado por padrão)
+          schema:
+            type: string
+            enum: [auto, group, setor]
+            default: auto
+        - name: month
+          in: query
+          required: false
+          description: Mês de referência para parâmetros versionados
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+          example: "2025-09"
+        - name: activeOnly
+          in: query
+          required: false
+          description: Filtrar apenas parâmetros ativos
+          schema:
+            type: boolean
+            default: true
+        - name: format
+          in: query
+          required: false
+          description: Formato de resposta dos parâmetros
+          schema:
+            type: string
+            enum: [grouped, flat]
+            default: grouped
+      responses:
+        '200':
+          description: Parâmetros obtidos com sucesso
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ParamsResponseGrouped'
+                  - $ref: '#/components/schemas/ParamsResponseFlat'
+              examples:
+                grouped:
+                  summary: Resposta em formato agrupado
+                  value:
+                    escopo: "group"
+                    id: "550e8400-e29b-41d4-a716-446655440000"
+                    count: 45
+                    params:
+                      inadimplencia:
+                        peso_total: 0.4
+                        peso_recente: 0.6
+                      medicao:
+                        peso_consumo: 0.5
+                        peso_variacao: 0.5
+                      cadastro:
+                        fator_ajuste: 1.2
+                      potencial:
+                        threshold_min: 0.3
+                    raw:
+                      - id: "abc-123"
+                        nome: "peso_total"
+                        valor_num: 0.4
+                        valor_texto: null
+                        ativo: true
+                        updated_at: "2025-10-14T10:00:00Z"
+                flat:
+                  summary: Resposta em formato plano
+                  value:
+                    escopo: "setor"
+                    id: "SETOR01"
+                    count: 12
+                    params:
+                      - id: "xyz-789"
+                        nome: "weights::medicao::peso_consumo"
+                        valor_num: 0.5
+                        valor_texto: null
+                        ativo: true
+                        updated_at: "2025-10-14T10:00:00Z"
+        '400':
+          description: Parâmetros de requisição inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "id is required (grupo UUID or setor code)"
+        '500':
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /params-list:
+    get:
+      tags:
+        - Parâmetros
+      summary: Listar parâmetros de múltiplas entidades
+      description: |
+        Lista parâmetros de risco para múltiplas entidades ou com paginação.
+        
+        **Modo 1: Por IDs** - Quando `ids` é fornecido, retorna parâmetros das entidades especificadas.
+        
+        **Modo 2: Paginado** - Quando `ids` não é fornecido, retorna grupos e setores de forma paginada.
+        
+        Suporta filtragem por prefixo, mês e status ativo.
+      operationId: getParamsList
+      parameters:
+        - name: ids
+          in: query
+          required: false
+          description: Lista CSV de IDs mistos (UUID para grupo, texto para setor)
+          schema:
+            type: string
+          example: "550e8400-e29b-41d4-a716-446655440000,SETOR01,SETOR02"
+        - name: month
+          in: query
+          required: false
+          description: Mês de referência para parâmetros versionados
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+          example: "2025-09"
+        - name: activeOnly
+          in: query
+          required: false
+          description: Filtrar apenas parâmetros ativos
+          schema:
+            type: boolean
+            default: true
+        - name: format
+          in: query
+          required: false
+          description: Formato de resposta dos parâmetros
+          schema:
+            type: string
+            enum: [grouped, flat]
+            default: grouped
+        - name: g_limit
+          in: query
+          required: false
+          description: Limite de grupos por página (modo paginado)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+        - name: g_offset
+          in: query
+          required: false
+          description: Offset de grupos (modo paginado)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: s_limit
+          in: query
+          required: false
+          description: Limite de setores por página (modo paginado)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+        - name: s_offset
+          in: query
+          required: false
+          description: Offset de setores (modo paginado)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Parâmetros listados com sucesso
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ParamsListByIds'
+                  - $ref: '#/components/schemas/ParamsListPaged'
+              examples:
+                byIds:
+                  summary: Resposta por IDs específicos
+                  value:
+                    mode: "by_ids"
+                    total_ids: 2
+                    items:
+                      - escopo: "group"
+                        id: "550e8400-e29b-41d4-a716-446655440000"
+                        count: 20
+                        params:
+                          inadimplencia:
+                            peso_total: 0.4
+                          medicao:
+                            peso_consumo: 0.5
+                      - escopo: "setor"
+                        id: "SETOR01"
+                        count: 10
+                        params:
+                          cadastro:
+                            fator_ajuste: 1.1
+                paged:
+                  summary: Resposta paginada
+                  value:
+                    mode: "paged_both"
+                    prefix: ""
+                    month: ""
+                    activeOnly: true
+                    groups:
+                      total_rows: 150
+                      limit: 50
+                      offset: 0
+                      returned: 2
+                      items:
+                        - escopo: "group"
+                          id: "550e8400-e29b-41d4-a716-446655440000"
+                          count: 25
+                          params:
+                            inadimplencia:
+                              peso_total: 0.4
+                    setores:
+                      total_rows: 800
+                      limit: 50
+                      offset: 0
+                      returned: 3
+                      items:
+                        - escopo: "setor"
+                          id: "SETOR01"
+                          count: 15
+                          params:
+                            medicao:
+                              peso_consumo: 0.5
+        '500':
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /ranges-and-weights:
+    post:
+      tags:
+        - Cálculo
+      summary: Calcular ranges e pesos para setores ou grupos
+      description: |
+        Calcula ranges estatísticos e pesos automatizados para setores ou grupos.
+        
+        O cálculo é baseado no histórico agregado de imóveis (IHA) e pode:
+        - Retornar apenas os ranges calculados (`forward=false`)
+        - Enviar os ranges para um agente de IA gerar pesos automaticamente (`forward=true`)
+        
+        Quando `forward=true`, requer a variável de ambiente `OPENAI_API_KEY`.
+      operationId: calculateRangesAndWeights
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - escopo
+                - identificadores
+                - periodo
+                - janela_meses
+              properties:
+                escopo:
+                  type: string
+                  enum: [setor, grupo]
+                  description: Tipo de entidade para cálculo
+                  example: "grupo"
+                identificadores:
+                  type: array
+                  description: Lista de códigos (setores) ou UUIDs (grupos)
+                  minItems: 1
+                  items:
+                    type: string
+                  example: ["550e8400-e29b-41d4-a716-446655440000"]
+                periodo:
+                  type: string
+                  description: Período de referência (qualquer formato de data)
+                  example: "2025-09"
+                janela_meses:
+                  type: integer
+                  minimum: 1
+                  description: Quantidade de meses para análise histórica
+                  example: 12
+                forward:
+                  type: boolean
+                  default: true
+                  description: Se true, envia ranges para agente de IA gerar pesos
+            examples:
+              comForward:
+                summary: Calcular e gerar pesos automaticamente
+                value:
+                  escopo: "grupo"
+                  identificadores: ["550e8400-e29b-41d4-a716-446655440000"]
+                  periodo: "2025-09"
+                  janela_meses: 12
+                  forward: true
+              semForward:
+                summary: Apenas calcular ranges
+                value:
+                  escopo: "setor"
+                  identificadores: ["SETOR01", "SETOR02"]
+                  periodo: "2025-09-01"
+                  janela_meses: 6
+                  forward: false
+      responses:
+        '200':
+          description: Cálculo executado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  periodo:
+                    type: string
+                    description: Período normalizado utilizado no cálculo
+                    example: "2025-09-01"
+                  janela_meses:
+                    type: integer
+                    example: 12
+                  escopo:
+                    type: string
+                    enum: [setor, grupo]
+                    example: "grupo"
+                  total_entidades:
+                    type: integer
+                    description: Quantidade de entidades processadas
+                    example: 1
+                  results:
+                    type: array
+                    description: Ranges calculados para cada entidade
+                    items:
+                      $ref: '#/components/schemas/RangeResult'
+                  agent_persisted:
+                    type: integer
+                    description: Quantidade de itens persistidos pelo agente (apenas com forward=true)
+                    example: 1
+                  agent_errors:
+                    type: array
+                    description: Erros ao persistir itens do agente (apenas com forward=true)
+                    items:
+                      type: object
+                      properties:
+                        setor_id:
+                          type: string
+                        error:
+                          type: string
+              examples:
+                success:
+                  summary: Resposta de sucesso completa
+                  value:
+                    periodo: "2025-09-01"
+                    janela_meses: 12
+                    escopo: "grupo"
+                    total_entidades: 1
+                    results:
+                      - setor_id: "550e8400-e29b-41d4-a716-446655440000"
+                        count: 150
+                        inadimplencia:
+                          range_consumo_inadimplente: [0, 50, 100, 200]
+                          range_tempo_inadimplente: [0, 30, 60, 90]
+                        medicao:
+                          range_consumo_m3: [0, 10, 25, 50, 100]
+                          range_dias_consumo: [0, 15, 30, 45]
+                    agent_persisted: 1
+                    agent_errors: []
+        '400':
+          description: Requisição inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                escopoInvalido:
+                  value:
+                    error: "escopo must be 'setor' or 'grupo'"
+                semIdentificadores:
+                  value:
+                    error: "identificadores must be array with at least 1 item"
+                semApiKey:
+                  value:
+                    error: "OPENAI_API_KEY env is required when forward=true"
+        '500':
+          description: Erro interno do servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Mensagem de erro
+          example: "Internal server error"
+
+    GrupoComSetores:
+      type: object
+      properties:
+        grupo_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        nome:
+          type: string
+          nullable: true
+          example: "Grupo Central"
+        ativo:
+          type: boolean
+          nullable: true
+          example: true
+        setores:
+          type: array
+          items:
+            type: string
+          example: ["SETOR01", "SETOR02", "SETOR03"]
+        qtd_setores:
+          type: integer
+          example: 3
+
+    SetorComGrupo:
+      type: object
+      properties:
+        setor:
+          type: string
+          example: "SETOR01"
+        grupo_id:
+          type: string
+          format: uuid
+          nullable: true
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        grupo_nome:
+          type: string
+          nullable: true
+          example: "Grupo Central"
+        grupo_ativo:
+          type: boolean
+          nullable: true
+          example: true
+
+    Parametro:
+      type: object
+      properties:
+        id:
+          type: string
+          description: ID do parâmetro
+          example: "abc-123-def"
+        nome:
+          type: string
+          description: Nome completo do parâmetro com namespace
+          example: "peso_total::2025-09"
+        valor_num:
+          type: number
+          nullable: true
+          description: Valor numérico do parâmetro
+          example: 0.4
+        valor_texto:
+          type: string
+          nullable: true
+          description: Valor textual do parâmetro
+          example: null
+        ativo:
+          type: boolean
+          description: Indica se o parâmetro está ativo
+          example: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Data da última atualização
+          example: "2025-10-14T10:00:00Z"
+
+    ParametrosAgrupados:
+      type: object
+      properties:
+        inadimplencia:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            peso_total: 0.4
+            peso_recente: 0.6
+        medicao:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            peso_consumo: 0.5
+            peso_variacao: 0.5
+        cadastro:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            fator_ajuste: 1.2
+        potencial:
+          type: object
+          additionalProperties:
+            type: number
+          example:
+            threshold_min: 0.3
+
+    ParamsResponseGrouped:
+      type: object
+      properties:
+        escopo:
+          type: string
+          enum: [group, setor]
+          example: "group"
+        id:
+          type: string
+          description: UUID do grupo ou código do setor
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        count:
+          type: integer
+          description: Quantidade de parâmetros retornados
+          example: 45
+        params:
+          $ref: '#/components/schemas/ParametrosAgrupados'
+        raw:
+          type: array
+          description: Lista completa de parâmetros brutos
+          items:
+            $ref: '#/components/schemas/Parametro'
+
+    ParamsResponseFlat:
+      type: object
+      properties:
+        escopo:
+          type: string
+          enum: [group, setor]
+          example: "setor"
+        id:
+          type: string
+          description: UUID do grupo ou código do setor
+          example: "SETOR01"
+        count:
+          type: integer
+          description: Quantidade de parâmetros retornados
+          example: 12
+        params:
+          type: array
+          items:
+            $ref: '#/components/schemas/Parametro'
+
+    ParamsListItem:
+      type: object
+      properties:
+        escopo:
+          type: string
+          enum: [group, setor]
+          example: "group"
+        id:
+          type: string
+          description: UUID do grupo ou código do setor
+        count:
+          type: integer
+          description: Quantidade de parâmetros
+        params:
+          oneOf:
+            - $ref: '#/components/schemas/ParametrosAgrupados'
+            - type: array
+              items:
+                $ref: '#/components/schemas/Parametro'
+        raw:
+          type: array
+          description: Lista completa de parâmetros brutos (apenas formato grouped)
+          items:
+            $ref: '#/components/schemas/Parametro'
+
+    ParamsListByIds:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [by_ids]
+          example: "by_ids"
+        total_ids:
+          type: integer
+          description: Quantidade de IDs processados
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ParamsListItem'
+
+    ParamsListPaged:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [paged_both]
+          example: "paged_both"
+        prefix:
+          type: string
+          example: ""
+        month:
+          type: string
+          example: ""
+        activeOnly:
+          type: boolean
+          example: true
+        groups:
+          type: object
+          properties:
+            total_rows:
+              type: integer
+              description: Total de registros de grupos
+              example: 150
+            limit:
+              type: integer
+              example: 50
+            offset:
+              type: integer
+              example: 0
+            returned:
+              type: integer
+              description: Quantidade de grupos retornados na página
+              example: 2
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ParamsListItem'
+        setores:
+          type: object
+          properties:
+            total_rows:
+              type: integer
+              description: Total de registros de setores
+              example: 800
+            limit:
+              type: integer
+              example: 50
+            offset:
+              type: integer
+              example: 0
+            returned:
+              type: integer
+              description: Quantidade de setores retornados na página
+              example: 3
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ParamsListItem'
+
+    RangeResult:
+      type: object
+      properties:
+        setor_id:
+          type: string
+          description: ID do setor ou grupo processado
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        count:
+          type: integer
+          description: Quantidade de registros utilizados no cálculo
+          example: 150
+        inadimplencia:
+          type: object
+          description: Ranges calculados para inadimplência
+          properties:
+            range_consumo_inadimplente:
+              type: array
+              items:
+                type: number
+              example: [0, 50, 100, 200]
+            range_tempo_inadimplente:
+              type: array
+              items:
+                type: number
+              example: [0, 30, 60, 90]
+          additionalProperties:
+            type: array
+            items:
+              type: number
+        medicao:
+          type: object
+          description: Ranges calculados para medição
+          properties:
+            range_consumo_m3:
+              type: array
+              items:
+                type: number
+              example: [0, 10, 25, 50, 100]
+            range_dias_consumo:
+              type: array
+              items:
+                type: number
+              example: [0, 15, 30, 45]
+          additionalProperties:
+            type: array
+            items:
+              type: number
+
