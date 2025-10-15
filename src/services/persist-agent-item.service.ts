@@ -13,7 +13,15 @@ const GROUP_PARAM_NAMES = [
     "z_risk"
   ];
 
-export async function persistAgentItem(item) {
+function formatParamName(baseName: string, periodo?: string, janelaMeses?: number): string {
+  if (!periodo) return baseName;
+  // Extrai YYYY-MM do periodo (ex: "2025-10-01" -> "2025-10")
+  const month = periodo.substring(0, 7);
+  const janela = janelaMeses ? `::${janelaMeses}m` : '';
+  return `${baseName}::${month}${janela}`;
+}
+
+export async function persistAgentItem(item, periodo?: string, janelaMeses?: number) {
     // Decide setor (texto) x grupo (UUID)
     const id = String(item?.setor_id ?? "");
     if (!id) throw new Error("missing setor_id in agent item");
@@ -24,16 +32,27 @@ export async function persistAgentItem(item) {
   
     if (isUUIDv4(id)) {
       // ---- Grupo → parametros_risco_grupo ----
-      const toDelete = GROUP_PARAM_NAMES;
-      // apaga antigos
-      const { data: oldRows, error: selErr } = await supabase
+      // busca parâmetros antigos do mesmo período/janela
+      let query = supabase
         .from("parametros_risco_grupo")
         .select("id,nome")
         .eq("grupo_id", id);
+      
+      // Filtra por período e janela se fornecidos
+      if (periodo && janelaMeses) {
+        const month = periodo.substring(0, 7);
+        query = query.like("nome", `%::${month}::${janelaMeses}m`);
+      }
+      
+      const { data: oldRows, error: selErr } = await query;
       if (selErr) throw selErr;
   
+      // Extrai nomes base dos parâmetros esperados
+      const expectedNames = new Set(
+        GROUP_PARAM_NAMES.map(key => formatParamName(key, periodo, janelaMeses))
+      );
       const toDelIds = (oldRows ?? [])
-        .filter(r => toDelete.includes(String(r.nome)))
+        .filter(r => expectedNames.has(String(r.nome)))
         .map(r => r.id);
   
       if (toDelIds.length) {
@@ -45,7 +64,7 @@ export async function persistAgentItem(item) {
       }
   
       // insere novos
-      const rows = extractParamsToRows(item).map(r => ({
+      const rows = extractParamsToRows(item, periodo, janelaMeses).map(r => ({
         grupo_id: id,
         nome: r.name,
         valor_num: r.value,
@@ -58,12 +77,20 @@ export async function persistAgentItem(item) {
   
     } else {
       // ---- Setor → parametros_risco (nome codifica o setor) ----
-      const names = toSetorParamNames(id);
-      // apaga antigos por nome prefixado
-      const { data: oldRows, error: selErr } = await supabase
+      const names = toSetorParamNames(id, periodo, janelaMeses);
+      // apaga antigos por nome prefixado (considera período e janela se fornecidos)
+      let query = supabase
         .from("parametros_risco")
         .select("id,nome")
         .like("nome", `${id}\_\_%`);
+      
+      // Filtra por período e janela se fornecidos
+      if (periodo && janelaMeses) {
+        const month = periodo.substring(0, 7);
+        query = query.like("nome", `%::${month}::${janelaMeses}m`);
+      }
+      
+      const { data: oldRows, error: selErr } = await query;
       if (selErr) throw selErr;
   
       const baseNames = new Set(names);
@@ -79,7 +106,7 @@ export async function persistAgentItem(item) {
         if (delErr) throw delErr;
       }
   
-      const rows = extractParamsToRows(item).map(r => ({
+      const rows = extractParamsToRows(item, periodo, janelaMeses).map(r => ({
         nome: `${id}__${r.name}`,
         valor_num: r.value,
         valor_texto: null,
@@ -91,20 +118,27 @@ export async function persistAgentItem(item) {
     }
   }
 
-  function toSetorParamNames(setor) {
-    return GROUP_PARAM_NAMES.map(key => `${setor}__${key}`);
+  function toSetorParamNames(setor: string, periodo?: string, janelaMeses?: number) {
+    return GROUP_PARAM_NAMES.map(key => 
+      formatParamName(`${setor}__${key}`, periodo, janelaMeses)
+    );
   }
   
-  function extractParamsToRows(item: any) {
+  function extractParamsToRows(item: any, periodo?: string, janelaMeses?: number) {
     // retorna um array { name, value } para os 8 parâmetros
     const rows: { name: string, value: any }[] = [];
-    rows.push({ name: "w_atraso",    value: item?.inadimplencia?.w_atraso });
-    rows.push({ name: "w_indice",    value: item?.inadimplencia?.w_indice });
-    rows.push({ name: "w_valor_aberto", value: item?.inadimplencia?.w_valor_aberto });
-    rows.push({ name: "w_idade",           value: item?.medicao?.w_idade });
-    rows.push({ name: "w_anomalias",       value: item?.medicao?.w_anomalias });
-    rows.push({ name: "w_desvio",          value: item?.medicao?.w_desvio });
-    rows.push({ name: "z_warn",                    value: item?.cadastro?.z_warn });
-    rows.push({ name: "z_risk",                    value: item?.cadastro?.z_risk });
+    const addRow = (name: string, value: any) => {
+      rows.push({ name: formatParamName(name, periodo, janelaMeses), value });
+    };
+    
+    addRow("w_atraso", item?.inadimplencia?.w_atraso);
+    addRow("w_indice", item?.inadimplencia?.w_indice);
+    addRow("w_valor_aberto", item?.inadimplencia?.w_valor_aberto);
+    addRow("w_idade", item?.medicao?.w_idade);
+    addRow("w_anomalias", item?.medicao?.w_anomalias);
+    addRow("w_desvio", item?.medicao?.w_desvio);
+    addRow("z_warn", item?.cadastro?.z_warn);
+    addRow("z_risk", item?.cadastro?.z_risk);
+    
     return rows;
   }

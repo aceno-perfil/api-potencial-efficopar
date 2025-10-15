@@ -8,10 +8,11 @@ export const paramsRouter = express.Router();
 const SETOR_KEY_JOIN = "__";
 
 function splitSetorKey(name: string) {
-  // "101__w_indice" -> { setor: "101", key: "w_indice" }
-  const ix = name.indexOf(SETOR_KEY_JOIN);
-  if (ix === -1) return { setor: null, key: name };
-  return { setor: name.slice(0, ix), key: name.slice(ix + SETOR_KEY_JOIN.length) };
+  // Remove sufixos: "101__w_indice::2025-10::6m" -> setor: "101", key: "w_indice"
+  const cleanName = name.split("::")[0];
+  const ix = cleanName.indexOf(SETOR_KEY_JOIN);
+  if (ix === -1) return { setor: null, key: cleanName };
+  return { setor: cleanName.slice(0, ix), key: cleanName.slice(ix + SETOR_KEY_JOIN.length) };
 }
 
 // GET /params
@@ -29,25 +30,45 @@ paramsRouter.get("/params", async (req, res) => {
     const escopo = isUUIDv4(id) ? "group" : "setor";
     const activeOnly = String(req.query.activeOnly ?? "true") === "true";
     const format = (req.query.format === "flat" ? "flat" : "grouped");
+    const month = req.query.month ? String(req.query.month) : null;
+    const janelaMeses = req.query.janela_meses ? Number(req.query.janela_meses) : null;
 
     let rows: any[] = [];
 
     if (escopo === "group") {
       // Grupo: nomes são só a chave final ("w_indice", "z_warn", ...)
-      const { data, error } = await supabase
+      let query = supabase
         .from("parametros_risco_grupo")
         .select("id, nome, valor_num, valor_texto, ativo, updated_at")
-        .eq("grupo_id", id)
-        .order("nome", { ascending: true });
+        .eq("grupo_id", id);
+      
+      // Filtrar por período e janela se fornecidos
+      if (month && janelaMeses) {
+        query = query.like("nome", `%::${month}::${janelaMeses}m`);
+      } else if (month) {
+        query = query.like("nome", `%::${month}::%`);
+      }
+      
+      query = query.order("nome", { ascending: true });
+      const { data, error } = await query;
       if (error) throw error;
       rows = data ?? [];
     } else {
       // Setor: nomes são "<SETOR>__<key>"
-      const { data, error } = await supabase
+      let query = supabase
         .from("parametros_risco")
         .select("id, nome, valor_num, valor_texto, ativo, updated_at")
-        .like("nome", `${id}${SETOR_KEY_JOIN}%`)
-        .order("nome", { ascending: true });
+        .like("nome", `${id}${SETOR_KEY_JOIN}%`);
+      
+      // Filtrar por período e janela se fornecidos
+      if (month && janelaMeses) {
+        query = query.like("nome", `%::${month}::${janelaMeses}m`);
+      } else if (month) {
+        query = query.like("nome", `%::${month}::%`);
+      }
+      
+      query = query.order("nome", { ascending: true });
+      const { data, error } = await query;
       if (error) throw error;
       rows = data ?? [];
     }

@@ -14,19 +14,28 @@ const CAD_KEYS  = new Set(["z_warn", "z_risk"]);
 const POT_KEYS  = new Set(["pot_min", "pot_max"]);
 
 function splitSetorKey(name: string) {
-  // "101__w_indice" -> { setor: "101", key: "w_indice" }
-  const ix = name.indexOf(SETOR_KEY_JOIN);
-  if (ix === -1) return { setor: null, key: name };
-  return { setor: name.slice(0, ix), key: name.slice(ix + SETOR_KEY_JOIN.length) };
+  // Remove sufixos: "101__w_indice::2025-10::6m" -> "101__w_indice"
+  const cleanName = name.split("::")[0];
+  const ix = cleanName.indexOf(SETOR_KEY_JOIN);
+  if (ix === -1) return { setor: null, key: cleanName };
+  return { 
+    setor: cleanName.slice(0, ix), 
+    key: cleanName.slice(ix + SETOR_KEY_JOIN.length) 
+  };
 }
 
-function toGroupedNoPrefix(rows: any[], isSetor: boolean, setorId?: string) {
-  const out: any = { inadimplencia: {}, medicao: {}, cadastro: {}, potencial: {} };
-  for (const r of rows) {
-    const raw = String(r.nome);
-    const key = isSetor ? splitSetorKey(raw).key : raw;
-    const val = r.valor_num ?? (r.valor_texto ? Number(r.valor_texto) : null);
+function extractParamMetadata(name: string) {
+  // "101__w_indice::2025-10::6m" -> { periodo: "2025-10", janela_meses: 6 }
+  const parts = name.split("::");
+  return {
+    periodo: parts[1] || null,
+    janela_meses: parts[2] ? parseInt(parts[2]) : null
+  };
+}
 
+function groupByCategory(items: Array<{key: string, val: any}>) {
+  const out: any = { inadimplencia: {}, medicao: {}, cadastro: {}, potencial: {} };
+  for (const { key, val } of items) {
     if (INAD_KEYS.has(key)) {
       out.inadimplencia[key] = val;
     } else if (MEDI_KEYS.has(key)) {
@@ -35,11 +44,54 @@ function toGroupedNoPrefix(rows: any[], isSetor: boolean, setorId?: string) {
       out.cadastro[key] = val;
     } else if (POT_KEYS.has(key)) {
       out.potencial[key] = val;
-    } else {
-      // opcional: out.outros = { ...(out.outros||{}), [key]: val }
     }
   }
   return out;
+}
+
+function toGroupedNoPrefix(rows: any[], isSetor: boolean, setorId?: string) {
+  // Agrupa por periodo::janela
+  const byPeriodJanela = new Map<string, any[]>();
+  
+  for (const r of rows) {
+    const raw = String(r.nome);
+    const parts = raw.split("::");
+    const baseName = parts[0]; // "w_anomalias" ou "101__w_anomalias"
+    const periodo = parts[1] || null; // "2021-10"
+    const janelaStr = parts[2] || null; // "10m"
+    const janelaMeses = janelaStr ? parseInt(janelaStr) : null; // 10
+    
+    // Remove prefixo do setor se necessário
+    const key = isSetor ? splitSetorKey(baseName).key : baseName;
+    const val = r.valor_num ?? (r.valor_texto ? Number(r.valor_texto) : null);
+    
+    const groupKey = periodo && janelaStr ? `${periodo}::${janelaStr}` : '__no_period__';
+    if (!byPeriodJanela.has(groupKey)) {
+      byPeriodJanela.set(groupKey, []);
+    }
+    byPeriodJanela.get(groupKey)!.push({ key, val });
+  }
+  
+  // Converte para array de objetos
+  const result: any[] = [];
+  for (const [groupKey, items] of byPeriodJanela.entries()) {
+    let periodo: string | null = null;
+    let janelaMeses: number | null = null;
+    
+    if (groupKey !== '__no_period__') {
+      const [p, j] = groupKey.split('::');
+      periodo = p;
+      janelaMeses = parseInt(j);
+    }
+    
+    result.push({
+      periodo,
+      janela_meses: janelaMeses,
+      ...groupByCategory(items)
+    });
+  }
+  
+  return result;
 }
 
 /**
@@ -62,6 +114,8 @@ paramsListRouter.get("/params-list", async (req, res) => {
 
     const activeOnly = String(req.query.activeOnly ?? "true") === "true";
     const format = (req.query.format === "flat" ? "flat" : "grouped");
+    const periodo = req.query.periodo ? String(req.query.periodo).substring(0, 7) : null;
+    const janelaMeses = req.query.janela_meses ? Number(req.query.janela_meses) : null;
 
     // ---- Caso 1: com IDS (misto) -> um único array "items"
     if (ids.length) {
@@ -82,11 +136,20 @@ paramsListRouter.get("/params-list", async (req, res) => {
           const groupName = groupData?.nome ?? null;
 
           // GRUPO: nome = <key>
-          const { data, error } = await supabase
+          let query = supabase
             .from("parametros_risco_grupo")
             .select("grupo_id,id,nome,valor_num,valor_texto,ativo,updated_at")
-            .eq("grupo_id", id)
-            .order("nome", { ascending: true });
+            .eq("grupo_id", id);
+          
+          // Filtra por período e janela se fornecidos
+          if (periodo && janelaMeses) {
+            query = query.like("nome", `%::${periodo}::${janelaMeses}m`);
+          } else if (periodo) {
+            query = query.like("nome", `%::${periodo}::%`);
+          }
+          
+          query = query.order("nome", { ascending: true });
+          const { data, error } = await query;
 
           if (error) throw error;
 
@@ -107,11 +170,20 @@ paramsListRouter.get("/params-list", async (req, res) => {
           }
         } else {
           // SETOR: nome = "<SETOR>__<key>"
-          const { data, error } = await supabase
+          let query = supabase
             .from("parametros_risco")
             .select("id,nome,valor_num,valor_texto,ativo,updated_at")
-            .like("nome", `${id}${SETOR_KEY_JOIN}%`)
-            .order("nome", { ascending: true });
+            .like("nome", `${id}${SETOR_KEY_JOIN}%`);
+          
+          // Filtra por período e janela se fornecidos
+          if (periodo && janelaMeses) {
+            query = query.like("nome", `%::${periodo}::${janelaMeses}m`);
+          } else if (periodo) {
+            query = query.like("nome", `%::${periodo}::%`);
+          }
+          
+          query = query.order("nome", { ascending: true });
+          const { data, error} = await query;
 
           if (error) throw error;
 
@@ -143,12 +215,23 @@ paramsListRouter.get("/params-list", async (req, res) => {
     const s_offset = Math.max(0, Number(req.query.s_offset ?? 0));
 
     // GRUPOS (paginado) — nome = <key>
-    const { data: g_rows, error: g_err, count: g_count } = await supabase
+    let g_query = supabase
       .from("parametros_risco_grupo")
-      .select("grupo_id,id,nome,valor_num,valor_texto,ativo,updated_at", { count: "exact" })
+      .select("grupo_id,id,nome,valor_num,valor_texto,ativo,updated_at", { count: "exact" });
+    
+    // Filtra por período e janela se fornecidos
+    if (periodo && janelaMeses) {
+      g_query = g_query.like("nome", `%::${periodo}::${janelaMeses}m`);
+    } else if (periodo) {
+      g_query = g_query.like("nome", `%::${periodo}::%`);
+    }
+    
+    g_query = g_query
       .order("grupo_id", { ascending: true })
       .order("nome", { ascending: true })
       .range(g_offset, g_offset + g_limit - 1);
+    
+    const { data: g_rows, error: g_err, count: g_count } = await g_query;
     if (g_err) throw g_err;
 
     let g_list = g_rows ?? [];
@@ -189,12 +272,23 @@ paramsListRouter.get("/params-list", async (req, res) => {
     }
 
     // SETORES (paginado) — nome = "<SETOR>__<key>"
-    const { data: s_rows, error: s_err, count: s_count } = await supabase
+    let s_query = supabase
       .from("parametros_risco")
       .select("id,nome,valor_num,valor_texto,ativo,updated_at", { count: "exact" })
-      .like("nome", `%${SETOR_KEY_JOIN}%`) // pega todos que seguem o padrão "<SETOR>__<key>"
+      .like("nome", `%${SETOR_KEY_JOIN}%`); // pega todos que seguem o padrão "<SETOR>__<key>"
+    
+    // Filtra por período e janela se fornecidos
+    if (periodo && janelaMeses) {
+      s_query = s_query.like("nome", `%::${periodo}::${janelaMeses}m`);
+    } else if (periodo) {
+      s_query = s_query.like("nome", `%::${periodo}::%`);
+    }
+    
+    s_query = s_query
       .order("nome", { ascending: true })
       .range(s_offset, s_offset + s_limit - 1);
+    
+    const { data: s_rows, error: s_err, count: s_count } = await s_query;
     if (s_err) throw s_err;
 
     let s_list = s_rows ?? [];

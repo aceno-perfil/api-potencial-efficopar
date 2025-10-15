@@ -125,10 +125,10 @@ router.post("/ranges-and-weights", async (req, res) => {
       try {
         validateAgentItem(item);
         // IMPORTANTE: o persistAgentItem deve, internamente,
-        // - salvar chaves de GRUPO como "w_indice", "w_desvio", "z_warn", "z_risk"
-        // - salvar chaves de SETOR como "<SETOR>__<key>" (ex.: "101__w_indice")
+        // - salvar chaves de GRUPO como "w_indice::YYYY-MM::Jm", "z_warn::YYYY-MM::Jm"
+        // - salvar chaves de SETOR como "<SETOR>__<key>::YYYY-MM::Jm" (ex.: "101__w_indice::2025-10::6m")
         // - NÃO salva pot_min e pot_max (devem ser gerenciados externamente)
-        await persistAgentItem(item);
+        await persistAgentItem(item, vMes, janela_meses);
         persisted.push(String(item?.setor_id));
       } catch (e: any) {
         errors.push({ setor_id: String(item?.setor_id ?? ""), error: String(e?.message ?? e) });
