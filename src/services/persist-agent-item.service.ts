@@ -3,16 +3,14 @@ import { isUUIDv4, validateWeights } from "../helpers";
 
 // ---- Persistência dos pesos ----
 const GROUP_PARAM_NAMES = [
-    "weights::inadimplencia::w_atraso",
-    "weights::inadimplencia::w_indice",
-    "weights::inadimplencia::w_valor_aberto",
-    "weights::medicao::w_idade",
-    "weights::medicao::w_anomalias",
-    "weights::medicao::w_desvio",
-    "cadastro::z_warn",
-    "cadastro::z_risk",
-    "potencial::pot_min",
-    "potencial::pot_max"
+    "w_atraso",
+    "w_indice",
+    "w_valor_aberto",
+    "w_idade",
+    "w_anomalias",
+    "w_desvio",
+    "z_warn",
+    "z_risk"
   ];
 
 export async function persistAgentItem(item) {
@@ -64,7 +62,8 @@ export async function persistAgentItem(item) {
       // apaga antigos por nome prefixado
       const { data: oldRows, error: selErr } = await supabase
         .from("parametros_risco")
-        .select("id,nome");
+        .select("id,nome")
+        .like("nome", `${id}\_\_%`);
       if (selErr) throw selErr;
   
       const baseNames = new Set(names);
@@ -81,7 +80,7 @@ export async function persistAgentItem(item) {
       }
   
       const rows = extractParamsToRows(item).map(r => ({
-        nome: r.name.replace("::", `::setor::${id}::`),
+        nome: `${id}__${r.name}`,
         valor_num: r.value,
         valor_texto: null,
         ativo: true,
@@ -93,21 +92,19 @@ export async function persistAgentItem(item) {
   }
 
   function toSetorParamNames(setor) {
-    return GROUP_PARAM_NAMES.map(key => key.replace("::", `::setor::${setor}::`));
+    return GROUP_PARAM_NAMES.map(key => `${setor}__${key}`);
   }
   
   function extractParamsToRows(item: any) {
-    // retorna um array { name, value } para os 10 parâmetros
+    // retorna um array { name, value } para os 8 parâmetros
     const rows: { name: string, value: any }[] = [];
-    rows.push({ name: "weights::inadimplencia::w_atraso",    value: item?.inadimplencia?.w_atraso });
-    rows.push({ name: "weights::inadimplencia::w_indice",    value: item?.inadimplencia?.w_indice });
-    rows.push({ name: "weights::inadimplencia::w_valor_aberto", value: item?.inadimplencia?.w_valor_aberto });
-    rows.push({ name: "weights::medicao::w_idade",           value: item?.medicao?.w_idade });
-    rows.push({ name: "weights::medicao::w_anomalias",       value: item?.medicao?.w_anomalias });
-    rows.push({ name: "weights::medicao::w_desvio",          value: item?.medicao?.w_desvio });
-    rows.push({ name: "cadastro::z_warn",                    value: item?.cadastro?.z_warn });
-    rows.push({ name: "cadastro::z_risk",                    value: item?.cadastro?.z_risk });
-    rows.push({ name: "potencial::pot_min",                  value: item?.potencial?.pot_min });
-    rows.push({ name: "potencial::pot_max",                  value: item?.potencial?.pot_max });
+    rows.push({ name: "w_atraso",    value: item?.inadimplencia?.w_atraso });
+    rows.push({ name: "w_indice",    value: item?.inadimplencia?.w_indice });
+    rows.push({ name: "w_valor_aberto", value: item?.inadimplencia?.w_valor_aberto });
+    rows.push({ name: "w_idade",           value: item?.medicao?.w_idade });
+    rows.push({ name: "w_anomalias",       value: item?.medicao?.w_anomalias });
+    rows.push({ name: "w_desvio",          value: item?.medicao?.w_desvio });
+    rows.push({ name: "z_warn",                    value: item?.cadastro?.z_warn });
+    rows.push({ name: "z_risk",                    value: item?.cadastro?.z_risk });
     return rows;
   }

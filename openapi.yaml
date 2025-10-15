@@ -192,16 +192,6 @@ paths:
             type: string
             enum: [auto, group, setor]
             default: auto
-        - name: prefix
-          in: query
-          required: false
-          description: Filtro por prefixo de parâmetro
-          schema:
-            type: string
-          examples:
-            - "weights::medicao"
-            - "cadastro::"
-            - "potencial::"
         - name: month
           in: query
           required: false
@@ -254,7 +244,7 @@ paths:
                         threshold_min: 0.3
                     raw:
                       - id: "abc-123"
-                        nome: "weights::inadimplencia::peso_total"
+                        nome: "peso_total"
                         valor_num: 0.4
                         valor_texto: null
                         ativo: true
@@ -309,16 +299,6 @@ paths:
           schema:
             type: string
           example: "550e8400-e29b-41d4-a716-446655440000,SETOR01,SETOR02"
-        - name: prefix
-          in: query
-          required: false
-          description: Filtro por prefixo de parâmetro
-          schema:
-            type: string
-          examples:
-            - "weights::medicao"
-            - "cadastro::"
-            - "potencial::"
         - name: month
           in: query
           required: false
@@ -660,7 +640,7 @@ components:
         nome:
           type: string
           description: Nome completo do parâmetro com namespace
-          example: "weights::inadimplencia::peso_total::2025-09"
+          example: "peso_total::2025-09"
         valor_num:
           type: number
           nullable: true

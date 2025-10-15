@@ -17,50 +17,63 @@ export async function callAgent(rangesArray: any[]): Promise<any[]> {
     throw new Error("OPENAI_API_KEY environment variable is required");
   }
 
-  // JSON Schema do output (array de setores com pesos)
+  // JSON Schema do output (objeto contendo array de setores com pesos)
+  // A OpenAI exige que o schema raiz seja do tipo "object" e que todos os objetos tenham additionalProperties: false
   const schema = {
-    "type": "array",
-    "items": {
-      "type": "object",
-      "required": ["setor_id","inadimplencia","medicao","cadastro","potencial"],
-      "properties": {
-        "setor_id": { "type": "string" },
-        "inadimplencia": {
+    "type": "object",
+    "required": ["setores"],
+    "properties": {
+      "setores": {
+        "type": "array",
+        "items": {
           "type": "object",
-          "required": ["w_atraso","w_indice","w_valor_aberto"],
+          "required": ["setor_id","inadimplencia","medicao","cadastro","potencial"],
           "properties": {
-            "w_atraso": { "type": "number", "minimum": 0, "maximum": 1 },
-            "w_indice": { "type": "number", "minimum": 0, "maximum": 1 },
-            "w_valor_aberto": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
-        "medicao": {
-          "type": "object",
-          "required": ["w_idade","w_anomalias","w_desvio"],
-          "properties": {
-            "w_idade": { "type": "number", "minimum": 0, "maximum": 1 },
-            "w_anomalias": { "type": "number", "minimum": 0, "maximum": 1 },
-            "w_desvio": { "type": "number", "minimum": 0, "maximum": 1 }
-          }
-        },
-        "cadastro": {
-          "type": "object",
-          "required": ["z_warn","z_risk"],
-          "properties": {
-            "z_warn": { "type": "number" },
-            "z_risk": { "type": "number" }
-          }
-        },
-        "potencial": {
-          "type": "object",
-          "required": ["pot_min","pot_max"],
-          "properties": {
-            "pot_min": { "type": "number", "minimum": 0, "maximum": 100 },
-            "pot_max": { "type": "number", "minimum": 0, "maximum": 100 }
-          }
+            "setor_id": { "type": "string" },
+            "inadimplencia": {
+              "type": "object",
+              "required": ["w_atraso","w_indice","w_valor_aberto"],
+              "properties": {
+                "w_atraso": { "type": "number", "minimum": 0, "maximum": 1 },
+                "w_indice": { "type": "number", "minimum": 0, "maximum": 1 },
+                "w_valor_aberto": { "type": "number", "minimum": 0, "maximum": 1 }
+              },
+              "additionalProperties": false
+            },
+            "medicao": {
+              "type": "object",
+              "required": ["w_idade","w_anomalias","w_desvio"],
+              "properties": {
+                "w_idade": { "type": "number", "minimum": 0, "maximum": 1 },
+                "w_anomalias": { "type": "number", "minimum": 0, "maximum": 1 },
+                "w_desvio": { "type": "number", "minimum": 0, "maximum": 1 }
+              },
+              "additionalProperties": false
+            },
+            "cadastro": {
+              "type": "object",
+              "required": ["z_warn","z_risk"],
+              "properties": {
+                "z_warn": { "type": "number" },
+                "z_risk": { "type": "number" }
+              },
+              "additionalProperties": false
+            },
+            "potencial": {
+              "type": "object",
+              "required": ["pot_min","pot_max"],
+              "properties": {
+                "pot_min": { "type": "number", "minimum": 0, "maximum": 100 },
+                "pot_max": { "type": "number", "minimum": 0, "maximum": 100 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       }
-    }
+    },
+    "additionalProperties": false
   };
 
   const system = `Papel e objetivo
@@ -175,6 +188,7 @@ JSON estrito no schema fornecido. Não inclua chaves extras.`;
     throw new Error("No content returned from OpenAI");
   }
 
-  return JSON.parse(content);
+  const parsed = JSON.parse(content);
+  return parsed.setores;
 }
 
