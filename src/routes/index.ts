@@ -6,6 +6,7 @@ import { paramsRouter } from './params.route';
 import { paramsListRouter } from "./params-list.route";
 import paramsSaveRouter from "./params-save.route";
 import { calcRiskRouter } from "./calc-risk.route";
+import { calcRiskV2Router } from "./calc-risk-v2.route";
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.use(paramsListRouter);
 router.use(paramsRouter);
 router.use(paramsSaveRouter);
 router.use(calcRiskRouter);
+router.use(calcRiskV2Router);
 
 export default router;
 
