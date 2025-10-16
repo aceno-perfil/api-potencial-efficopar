@@ -99,8 +99,6 @@ calcRiskRouter.post("/calc-risk", async (req, res) => {
     let inserted = 0;
     for (let i = 0; i < rowsToUpsert.length; i += BATCH) {
       const batch = rowsToUpsert.slice(i, i + BATCH);
-      
-      console.log("Salvando lote", i, "de", rowsToUpsert.length);
 
       const { error: upErr, count } = await supabase
         .from("risco_imovel_mensal")

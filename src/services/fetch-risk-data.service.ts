@@ -141,15 +141,14 @@ export async function fetchRiskData(
     if (fErr) throw fErr;
 
     console.log("Total de faturas", fts?.length ?? 0);
+    
+    const ftsIds = (fts ?? []).map((f) => f.medicao_id).slice(0, 350);
 
     // Map fatura -> imovel
     const { data: mmAll, error: mmAllErr } = await supabase
       .from("medicao_mensal")
       .select("id, imovel_id")
-      .in(
-        "id",
-        (fts ?? []).map((f) => f.medicao_id)
-      );
+      .in("id", ftsIds);
     
       console.error("Error fetching medicao mensal", mmAllErr);
 
@@ -165,7 +164,7 @@ export async function fetchRiskData(
       .select("fatura_id, valor_pago, data_pagamento")
       .in(
         "fatura_id",
-        (fts ?? []).map((f) => f.id)
+        ftsIds
       );
     if (pErr) throw pErr;
     const payByFat = new Map<
